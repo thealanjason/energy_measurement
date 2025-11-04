@@ -144,6 +144,8 @@ ajc@mbd:~$ alumet-agent --plugins procfs,csv exec python3 -- -c "print(1+1)"
 Since we did not provide a `alumet-config.toml` for the plugins, the agent creates one for us, based on the plugins we specified. The agent also writes the output to `alumet-output.csv` file.
 
 Contents of alumet-config.toml
+
++++ Unhide
 ```
 [plugins.csv]
 output_path = "alumet-output.csv"
@@ -186,8 +188,11 @@ poll_interval = "1s"
 flush_interval = "4s"
 
 ```
++++
 
 Contents of alumet-output.csv
+
++++ Unhide
 ```
 metric;timestamp;value;resource_kind;resource_id;consumer_kind;consumer_id;__late_attributes
 mem_total_kB;2025-11-02T21:12:52.714734289Z;16459247616;local_machine;;local_machine;;
@@ -586,18 +591,18 @@ active_kB;2025-11-02T21:12:57.715265335Z;7173455872;local_machine;;local_machine
 inactive_kB;2025-11-02T21:12:57.715265335Z;3239809024;local_machine;;local_machine;;
 mapped_kB;2025-11-02T21:12:57.715265335Z;1340239872;local_machine;;local_machine;;
 ```
-
++++
 
 ### Experiments
 
-# Fiddling with the `rapl` plugin
+#### Fiddling with the `rapl` plugin
 Command: 
 ```
 alumet-agent --config=alumet-config-rapl.toml exec python3 program.py 2> alumet-agent-rapl.log
 ```
 Output: `alumet-output-rapl.csv`
 
-# Fiddling with the `rapl` and `perf` plugin
+#### Fiddling with the `rapl` and `perf` plugin
 Command: 
 ```
 alumet-agent --config=alumet-config-rapl+perf.toml exec python3 program.py 2> alumet-agent-rapl+perf.log

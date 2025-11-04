@@ -136,8 +136,14 @@ strategy = "event"
 
 Special requirements for perf
 - information about `CAP_PERFMON` from https://alumet-dev.github.io/user-book/start/install.html#privileges-required
-- information about `perf_event_paranoid` value from https://alumet-dev.github.io/user-book/plugins/1_sources/rapl.html#perf_event_paranoid-and-capabilities
-- Note that this command will not make it permanent (reset after restart). To make it permanent, create a configuration file in /etc/sysctl.d/ (this may change depending on your Linux distro).
+- information about `kernel.perf_event_paranoid` value from https://alumet-dev.github.io/user-book/plugins/1_sources/rapl.html#perf_event_paranoid-and-capabilities
+- Note that this command will not make it permanent (reset after restart). To make it permanent, create a configuration file in /etc/sysctl.d/ (this may change depending on your Linux distro). Based on `README.sysctl` at `/etc/sysctl.d/`:
+    >    My personal preference would be for local system settings to go into
+    >    /etc/sysctl.d/local.conf but as long as you follow the rules for the names
+    >    of the file, anything will work. See sysctl.conf(8) man page for details
+    >    of the format.
+    
+    So we need to make a file `local.conf` with contents `kernel.perf_event_paranoid=2` at `/etc/sysctl.d/`
 
 
 ### 5. energy-attribution 

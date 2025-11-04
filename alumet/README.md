@@ -590,14 +590,14 @@ mapped_kB;2025-11-02T21:12:57.715265335Z;1340239872;local_machine;;local_machine
 
 ### Experiments
 
-# Fiddling with the `rapl` plugin
+#### Fiddling with the `rapl` plugin
 Command: 
 ```
 alumet-agent --config=alumet-config-rapl.toml exec python3 program.py 2> alumet-agent-rapl.log
 ```
 Output: `alumet-output-rapl.csv`
 
-# Fiddling with the `rapl` and `perf` plugin
+#### Fiddling with the `rapl` and `perf` plugin
 Command: 
 ```
 alumet-agent --config=alumet-config-rapl+perf.toml exec python3 program.py 2> alumet-agent-rapl+perf.log

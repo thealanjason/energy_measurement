@@ -597,6 +597,13 @@ alumet-agent --config=alumet-config-rapl.toml exec python3 program.py 2> alumet-
 ```
 Output: `alumet-output-rapl.csv`
 
+# Fiddling with the `rapl` and `perf` plugin
+Command: 
+```
+alumet-agent --config=alumet-config-rapl+perf.toml exec python3 program.py 2> alumet-agent-rapl+perf.log
+```
+Output: `alumet-output-rapl+perf.csv`
+
 ## Process Specific Energy Measurement with Alumet
 
 In order to measure the per-process energy with Alumet, we need time series information of:

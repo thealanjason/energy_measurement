@@ -615,8 +615,12 @@ The energy consumed by the process in question is a convolution of the two above
 
 Lastly, the source and transformed values are written to a CSV file using `csv` plugin.
 
-
-
+### Experiment with the `rapl`, `perf` and `energy-attribution` plugin
+Command:
+```
+alumet-agent --config=alumet-config-rapl+perf+energy-attribution.toml exec python3 program.py 2> alumet-agent-rapl+perf+energy-attribution.log
+```
+Output: `alumet-output-rapl+perf+energy-attribution.csv`
 
 
 ## Usage/Config of Alumet Plugins

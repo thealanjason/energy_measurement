@@ -54,6 +54,8 @@ To actually use alumet, we need to run an Agent that uses a set of plugins, eith
 
 In the following command, we run run the agent with the `procfs` and `csv` plugins, by specifying throught the command line. 
 
+Folder: `00_getting_started`
+
 ```
 alumet-agent --plugins procfs,csv exec python3 -- -c "print(1+1)"
 ```
@@ -68,6 +70,9 @@ Since we did not provide a `alumet-config.toml` for the plugins, the agent creat
 ### Experiments
 
 #### 1. Fiddling with the `rapl` plugin
+
+Folder: `01_rapl`
+
 Command: 
 ```
 alumet-agent --config=alumet-config-rapl.toml exec python3 program.py 2> alumet-agent-rapl.log
@@ -76,6 +81,9 @@ Output: `alumet-output-rapl.csv`
 Logfile: `alumet-agent-rapl.log`
 
 #### 2. Fiddling with the `rapl` and `perf` plugin
+
+Folder: `02_rapl_perf`
+
 Command: 
 ```
 alumet-agent --config=alumet-config-rapl+perf.toml exec python3 program.py 2> alumet-agent-rapl+perf.log
@@ -98,6 +106,9 @@ The energy consumed by the process in question is computed by a convolution of t
 Lastly, the source and transformed values are written to a CSV file using `csv` plugin.
 
 ### Experiment with the `rapl`, `perf` and `energy-attribution` plugin
+
+Folder: `03_rapl_perf_energy`
+
 Command:
 ```
 alumet-agent --config=alumet-config-rapl+perf+energy-attribution.toml exec python3 program.py 2> alumet-agent-rapl+perf+energy-attribution.log

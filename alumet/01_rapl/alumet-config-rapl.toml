@@ -40,7 +40,10 @@ flush_interval = "2s"
 
 
 [plugins.rapl]
+# Interval between two RAPL measurements.
 poll_interval = "20ms"
+# Interval between two flushing of RAPL measurements.
 flush_interval = "2s"
+# Set to true to disable perf-events and always use the powercap sysfs.
 no_perf_events = true
 

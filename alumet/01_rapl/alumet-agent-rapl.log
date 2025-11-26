@@ -1,75 +1,18 @@
-[2025-11-04T13:44:45Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-e38f35d-dirty (2025-10-30T09:26:27.579386171Z, rustc 1.90.0, debug=false)
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Initializing the plugins...
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] 3 plugins initialized.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Starting the plugins...
-[2025-11-04T13:44:45Z INFO  plugin_rapl] Available RAPL domains: package, platform, pp0, pp1
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Plugin startup complete.
-    🧩 3 plugins started:
-        - csv v0.2.0
-        - procfs v0.1.0
-        - rapl v0.3.1
+[2025-11-25T11:36:45Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-121f050-dirty (2025-11-04T15:09:14.054112820Z, rustc 1.91.0, debug=false)
+[2025-11-25T11:36:45Z INFO  alumet::agent::builder] Initializing the plugins...
+[2025-11-25T11:36:45Z INFO  alumet::agent::builder] 3 plugins initialized.
+[2025-11-25T11:36:45Z INFO  alumet::agent::builder] Starting the plugins...
+[2025-11-25T11:36:45Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2025-11-25T11:36:45Z ERROR plugin_rapl::powercap] I could not use the powercap sysfs to read RAPL energy counters: Could not open /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj. Try to adjust file permissions..
+    This is probably caused by insufficient privileges.
+    Please check that you have read access to everything in '/sys/devices/virtual/powercap/intel-rapl'.
     
-    ⭕ 23 plugins disabled:
-        - aggregation v0.1.0
-        - cgroups v0.1.0
-        - elasticsearch v0.1.0
-        - energy-attribution v0.1.0
-        - energy-estimation-tdp v0.1.0
-        - grace-hopper v0.1.0
-        - influxdb v0.1.0
-        - jetson v1.0.0
-        - k8s v0.1.0
-        - kwollect-input v1.0.0
-        - kwollect-output v0.1.0
-        - mongodb v0.1.0
-        - nvml v0.4.0
-        - oar v0.1.0
-        - opentelemetry v0.1.0
-        - perf v0.1.0
-        - process-to-cgroup-bridge v0.1.0
-        - prometheus-exporter v0.1.0
-        - quarch v0.1.0
-        - relay-client v0.6.0
-        - relay-server v0.6.0
-        - slurm v0.1.0
-        - socket-control v0.2.1
-    
-    📏 17 metrics registered:
-        - kernel_cpu_time: U64 (ms)
-        - kernel_context_switches: U64 ()
-        - kernel_new_forks: U64 ()
-        - kernel_n_procs_running: U64 ()
-        - kernel_n_procs_blocked: U64 ()
-        - mem_total: U64 (kB)
-        - mem_free: U64 (kB)
-        - mem_available: U64 (kB)
-        - cached: U64 (kB)
-        - swap_cached: U64 (kB)
-        - active: U64 (kB)
-        - inactive: U64 (kB)
-        - mapped: U64 (kB)
-        - cpu_time_delta: U64 (ns)
-        - cpu_percent: F64 ()
-        - memory_usage: U64 (B)
-        - rapl_consumed_energy: F64 (J)
-    
-    📥 3 sources, 🔀 0 transform and 📝 1 output registered.
-    
-    🔔 0 metric listener registered.
-    
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Starting the measurement pipeline...
-[2025-11-04T13:44:45Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
-[2025-11-04T13:44:45Z INFO  plugin_procfs] Setting up on-demand process watcher.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
-[2025-11-04T13:44:45Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 635767.
-[2025-11-04T13:44:48Z INFO  alumet::agent::exec] Child process exited with status exit status: 0, Alumet will now stop.
-[2025-11-04T13:44:48Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
-[2025-11-04T13:44:48Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-635767 stopped itself.
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping the plugins...
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping plugin procfs v0.1.0
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] All plugins have stopped.
+    A solution could be:
+        sudo chmod a+r -R /sys/devices/virtual/powercap/intel-rapl
+Error: startup failure
+
+Caused by:
+    0: plugin failed to start: rapl v0.3.1
+    1: Failed to create RAPL probe based on powercap
+    2: Could not open /sys/devices/virtual/powercap/intel-rapl/intel-rapl:0/energy_uj. Try to adjust file permissions.
+    3: Permission denied (os error 13)

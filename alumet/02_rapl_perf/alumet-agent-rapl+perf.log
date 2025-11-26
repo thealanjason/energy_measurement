@@ -1,9 +1,9 @@
-[2025-11-04T13:45:01Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-e38f35d-dirty (2025-10-30T09:26:27.579386171Z, rustc 1.90.0, debug=false)
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] Initializing the plugins...
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] 4 plugins initialized.
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] Starting the plugins...
-[2025-11-04T13:45:01Z INFO  plugin_rapl] Available RAPL domains: package, platform, pp0, pp1
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] Plugin startup complete.
+[2025-11-25T11:36:55Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-121f050-dirty (2025-11-04T15:09:14.054112820Z, rustc 1.91.0, debug=false)
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] Initializing the plugins...
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] 4 plugins initialized.
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] Starting the plugins...
+[2025-11-25T11:36:55Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] Plugin startup complete.
     🧩 4 plugins started:
         - csv v0.2.0
         - perf v0.1.0
@@ -65,7 +65,7 @@
         - inactive: U64 (kB)
         - mapped: U64 (kB)
         - cpu_time_delta: U64 (ns)
-        - cpu_percent: F64 ()
+        - cpu_percent: F64 (%)
         - memory_usage: U64 (B)
         - rapl_consumed_energy: F64 (J)
     
@@ -73,21 +73,21 @@
     
     🔔 0 metric listener registered.
     
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] Starting the measurement pipeline...
-[2025-11-04T13:45:01Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
-[2025-11-04T13:45:01Z INFO  plugin_procfs] Setting up on-demand process watcher.
-[2025-11-04T13:45:01Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
-[2025-11-04T13:45:01Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 635810.
-[2025-11-04T13:45:01Z INFO  plugin_perf] Starting to observe Process { pid: 635810 }...
-[2025-11-04T13:45:03Z INFO  alumet::agent::exec] Child process exited with status exit status: 0, Alumet will now stop.
-[2025-11-04T13:45:03Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
-[2025-11-04T13:45:03Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-635810 stopped itself.
-[2025-11-04T13:45:05Z INFO  alumet::agent::builder] Stopping the plugins...
-[2025-11-04T13:45:05Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
-[2025-11-04T13:45:05Z INFO  alumet::agent::builder] Stopping plugin perf v0.1.0
-[2025-11-04T13:45:05Z INFO  alumet::agent::builder] Stopping plugin procfs v0.1.0
-[2025-11-04T13:45:05Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
-[2025-11-04T13:45:05Z INFO  alumet::agent::builder] All plugins have stopped.
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2025-11-25T11:36:55Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2025-11-25T11:36:55Z INFO  plugin_procfs] Setting up on-demand process watcher.
+[2025-11-25T11:36:55Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2025-11-25T11:36:55Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 798897.
+[2025-11-25T11:36:55Z INFO  plugin_perf] Starting to observe Process { pid: 798897 }...
+[2025-11-25T11:36:55Z INFO  alumet::agent::exec] Child process exited with status exit status: 0, Alumet will now stop.
+[2025-11-25T11:36:55Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2025-11-25T11:36:55Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-798897 stopped itself.
+[2025-11-25T11:36:56Z INFO  alumet::agent::builder] Stopping the plugins...
+[2025-11-25T11:36:56Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2025-11-25T11:36:56Z INFO  alumet::agent::builder] Stopping plugin perf v0.1.0
+[2025-11-25T11:36:56Z INFO  alumet::agent::builder] Stopping plugin procfs v0.1.0
+[2025-11-25T11:36:56Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
+[2025-11-25T11:36:56Z INFO  alumet::agent::builder] All plugins have stopped.

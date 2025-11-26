@@ -10,9 +10,7 @@ git clone https://github.com/thealanjason/energy_measurement.git
 ```
 1. Energy measurement tools
 
-- [Alumet](https://alumet-dev.github.io/user-book/intro.html)
-
-See installation details [here](./alumet/README.md)
+- [Alumet](./alumet/README.md)
 
 2. Dashboard
 

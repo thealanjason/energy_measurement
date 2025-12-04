@@ -13,9 +13,9 @@ import plotly.colors as pc
 
 # Get base directory
 BASE_DIR = Path(__file__).parent.parent
-CONFIG_FILE = BASE_DIR / "03_rapl_perf_energy" / "alumet-config-rapl+perf+energy-attribution.toml"
-LOG_FILE = BASE_DIR / "03_rapl_perf_energy" / "alumet-agent-rapl+perf+energy-attribution.log"
-CSV_FILE = BASE_DIR / "03_rapl_perf_energy" / "alumet-output-rapl+perf+energy-attribution.csv"
+CONFIG_FILE = BASE_DIR / "experiments" / "03_rapl_perf_energy" / "alumet-config-rapl+perf+energy-attribution.toml"
+LOG_FILE = BASE_DIR / "experiments" / "03_rapl_perf_energy" / "alumet-agent-rapl+perf+energy-attribution.log"
+CSV_FILE = BASE_DIR / "experiments" / "03_rapl_perf_energy" / "alumet-output-rapl+perf+energy-attribution.csv"
 
 CASE_STUDY_OPTIONS = {
     "GEMM (Matrix Multiplication)": "gemm",
@@ -1005,7 +1005,7 @@ def run_benchmark(n_clicks, case_study_value, array_size, num_iterations, poll_i
                 stderr=subprocess.STDOUT, 
                 text=True,
                 timeout=600,
-                cwd=str(BASE_DIR / "03_rapl_perf_energy"),
+                cwd=str(BASE_DIR / "experiments" / "03_rapl_perf_energy"),
                 env=os.environ.copy() 
             )
 

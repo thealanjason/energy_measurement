@@ -1,0 +1,49 @@
+[plugins.csv]
+output_path = "alumet-output-rapl.csv"
+force_flush = true
+append_unit_to_metric_name = true
+use_unit_display_name = true
+csv_delimiter = ";"
+csv_late_delimiter = ","
+
+[plugins.procfs.kernel]
+enabled = true
+poll_interval = "20ms"
+
+[plugins.procfs.memory]
+enabled = true
+poll_interval = "20ms"
+metrics = [
+    "MemTotal",
+    "MemFree",
+    "MemAvailable",
+    "Cached",
+    "SwapCached",
+    "Active",
+    "Inactive",
+    "Mapped",
+]
+
+[plugins.procfs.processes]
+enabled = true
+refresh_interval = "20ms"
+strategy = "event"
+
+[[plugins.procfs.processes.groups]]
+exe_regex = ""
+poll_interval = "20ms"
+flush_interval = "2s"
+
+[plugins.procfs.processes.events]
+poll_interval = "20ms"
+flush_interval = "2s"
+
+
+[plugins.rapl]
+# Interval between two RAPL measurements.
+poll_interval = "20ms"
+# Interval between two flushing of RAPL measurements.
+flush_interval = "2s"
+# Set to true to disable perf-events and always use the powercap sysfs.
+no_perf_events = true
+

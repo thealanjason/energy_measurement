@@ -8,4 +8,8 @@ dependencies:
   - python=3.12
   - seaborn
   - pip:
+    - dash
+    - dash-ag-grid
+    - dash-bootstrap-components
     - marimo==0.18.0
+    - toml

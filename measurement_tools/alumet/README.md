@@ -10,7 +10,7 @@ Here I proceed with installing Alumet from source. For this I needed to perform 
 
 The install instructions were available at https://rust-lang.org/tools/install/. 
 On my Debian 13 linux machine, to I ran the command
-```
+```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 Everything went well!
@@ -21,13 +21,13 @@ Everything went well!
 The instructions were available at https://alumet-dev.github.io/user-book/start/install.html#option-4-installing-from-source
 
 The specific command I used was: 
-```
+```bash
 cargo install --git https://github.com/alumet-dev/alumet.git alumet-agent
 ```
 
 This did not work on the first try, because the `pkg-config` and `OpenSSL` package were missing on my Debian 13 machine. I was able to fix it by installing them both with the commands
 
-```
+```bash
 sudo apt install pkg-config
 sudo apt install OpenSSL
 ```
@@ -54,9 +54,9 @@ To actually use alumet, we need to run an Agent that uses a set of plugins, eith
 
 In the following command, we run run the agent with the `procfs` and `csv` plugins, by specifying throught the command line. 
 
-Folder: `00_getting_started`
+Folder: `experiments/00_getting_started`
 
-```
+```bash
 alumet-agent --plugins procfs,csv exec python3 -- -c "print(1+1)"
 ```
 
@@ -71,22 +71,22 @@ Since we did not provide a `alumet-config.toml` for the plugins, the agent creat
 
 #### 1. Fiddling with the `rapl` plugin
 
-Folder: `01_rapl`
+Folder: `experiments/01_rapl`
 
 Command: 
-```
-alumet-agent --config=alumet-config-rapl.toml exec python3 program.py 2> alumet-agent-rapl.log
+```bash
+alumet-agent --config=alumet-config-rapl.toml exec python3 ../../../case_studies/test_program.py 2> alumet-agent-rapl.log
 ```
 Output: `alumet-output-rapl.csv`
 Logfile: `alumet-agent-rapl.log`
 
 #### 2. Fiddling with the `rapl` and `perf` plugin
 
-Folder: `02_rapl_perf`
+Folder: `experiments/02_rapl_perf`
 
 Command: 
-```
-alumet-agent --config=alumet-config-rapl+perf.toml exec python3 program.py 2> alumet-agent-rapl+perf.log
+```bash
+alumet-agent --config=alumet-config-rapl+perf.toml exec python3 ../../../case_studies/test_program.py 2> alumet-agent-rapl+perf.log
 ```
 Output: `alumet-output-rapl+perf.csv`
 Logfile: `alumet-agent-rapl+perf.log`
@@ -107,11 +107,11 @@ Lastly, the source and transformed values are written to a CSV file using `csv` 
 
 ### Experiment with the `rapl`, `perf` and `energy-attribution` plugin
 
-Folder: `03_rapl_perf_energy`
+Folder: `experiments/03_rapl_perf_energy`
 
 Command:
-```
-alumet-agent --config=alumet-config-rapl+perf+energy-attribution.toml exec python3 program.py 2> alumet-agent-rapl+perf+energy-attribution.log
+```bash
+alumet-agent --config=alumet-config-rapl+perf+energy-attribution.toml exec python3 ../../../case_studies/test_program.py 2> alumet-agent-rapl+perf+energy-attribution.log
 ```
 Output: `alumet-output-rapl+perf+energy-attribution.csv`
 Logfile: `alumet-agent-rapl+perf+energy-attribution.log`
@@ -136,7 +136,7 @@ Special requirements for procfs
 
 In order for `energy-attribution` to work, we need information on per process `cpu_percent` (% consumption wrt total consumption). To get this, we have to choose the `event` strategy in procfs processes. Below is an example:
 
-```
+```toml
 [plugins.procfs.processes]
 enabled = true
 refresh_interval = "2s"

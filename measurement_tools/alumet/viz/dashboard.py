@@ -1,456 +1,27 @@
-from dash import Dash, html, dcc, callback, Input, Output, State, ctx, ALL
 import pandas as pd
 import plotly.graph_objects as go
-import subprocess
-import os
-import toml
-import re
-from typing import List, Optional
-from plotly.subplots import make_subplots
-from pathlib import Path
 import dash_bootstrap_components as dbc
-import plotly.colors as pc
+from pathlib import Path
+from dash import Dash, html, dcc, callback, Input, Output, State, ctx, ALL
+
+from utils import (
+    load_csv_from_contents, 
+    validate_file_extension,
+    preprocess_dataframe_for_visualization, 
+    get_process_time_range_from_df, 
+    parse_uploaded_file_contents, 
+    extract_pid_from_content, 
+    is_gpu_from_content,
+    get_color_palette,
+    create_all_timeseries_plots,
+)
 
 # Get base directory
 BASE_DIR = Path(__file__).parent.parent
-CONFIG_FILE = BASE_DIR / "03_rapl_perf_energy" / "alumet-config-rapl+perf+energy-attribution.toml"
-LOG_FILE = BASE_DIR / "03_rapl_perf_energy" / "alumet-agent-rapl+perf+energy-attribution.log"
-CSV_FILE = BASE_DIR / "03_rapl_perf_energy" / "alumet-output-rapl+perf+energy-attribution.csv"
-
-CASE_STUDY_OPTIONS = {
-    "GEMM (Matrix Multiplication)": "gemm",
-    "STREAM (Memory Bandwidth)": "stream",
-}
 
 # Initialize Dash app
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 app.config.suppress_callback_exceptions=True
-
-# Helper functions
-def extract_pid(log_file_path: Path):
-    """Extract process ID from Alumet log file."""
-    if not log_file_path.exists():
-        return None
-    with open(log_file_path, 'r') as f:
-        for line in f:
-            if 'pid' in line:
-                match = re.search(r'pid (\d+)', line)
-                if match:
-                    return int(match.group(1))
-    return None
-
-def is_gpu(log_file_path: Path) -> bool:
-    """Detect whether or not running on gpu device"""
-    if not log_file_path.exists():
-        return False
-    with open(log_file_path, 'r') as f:
-        for line in f:
-            if re.match('nvml', line):
-                return True
-    return False
-
-def update_config_value(config_file, key_name, new_value):
-    """
-    Recursively finds and updates a specific key (like poll_interval)
-    across the entire config dictionary.
-    """
-    # Load the toml configuration file
-    if not os.path.exists(config_file):
-        return
-    with open(config_file, 'r') as f:
-        config = toml.load(f)    
-
-    # Handle specific sections for refresh_interval
-    if key_name == 'refresh_interval':
-        procfs_processes = config.get('plugins', {}).get('procfs', {}).get('processes')
-        if procfs_processes is not None:
-            procfs_processes[key_name] = new_value
-
-    # Handle the array of tables for plugins.procfs.processes.groups
-    if key_name == 'poll_interval':
-        # Update regular sections (dictionaries)
-        sections_to_update = [
-            config['plugins']['procfs']['kernel'],
-            config['plugins']['procfs']['memory'],
-            config['plugins']['procfs']['processes']['events'],
-            config['plugins']['procfs']['processes']['groups'],
-            config['plugins']['rapl'],
-            config['plugins']['perf'],
-        ]
-        for section in sections_to_update:
-            if isinstance(section, dict):
-                section[key_name] = new_value
-            elif isinstance(section, list):
-                for group in section:
-                    if isinstance(group, dict):
-                        group[key_name] = new_value
-
-    # Dump the updated toml file
-    with open(config_file, 'w') as f:
-        toml.dump(config, f)
-    return
-
-def load_alumet_csv(path: Path) -> pd.DataFrame:
-    """Load Alumet CSV data"""
-    df = pd.read_csv(path, sep=";")
-    if df.empty:
-        raise ValueError("No data found in CSV.")
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df
-
-def _create_metric_id(row):
-        metric = str(row["metric"])
-        r_kind = str(row.get("resource_kind", ""))
-        r_id = str(row.get("resource_id", ""))
-        c_kind = str(row.get("consumer_kind", ""))
-        c_id = str(row.get("consumer_id", ""))
-        late_attr = str(row.get("__late_attributes", ""))
-        
-        # Format: metric_R_resource_kind_resource_id_C_consumer_kind_consumer_id_A_late_attributes
-        metric_id = f"{metric}_R_{r_kind}_{r_id}_C_{c_kind}_{c_id}_A_{late_attr}"
-        return metric_id
-
-def _format_metric_title(metric_id: str) -> str:
-    """Format metric_id into a readable title.
-    
-    Parses metric_id format: {base_metric}_R_{resource_kind}_{resource_id}_C_{consumer_kind}_{consumer_id}_A_{late_attributes}
-    Returns formatted string: "{base_metric} R: {resource_kind} {resource_id} C: {consumer_kind} {consumer_id} A: {__late_attributes}"
-    
-    Note: Since resource_kind and resource_id are concatenated with underscore in the metric_id,
-    we try to intelligently split them, but if ambiguous, we show the combined value.
-    """
-    try:
-        # Split by the delimiters
-        if "_R_" not in metric_id:
-            return metric_id  # Return as-is if format doesn't match
-        
-        parts = metric_id.split("_R_", 1)
-        base_metric = parts[0]
-        rest = parts[1] if len(parts) > 1 else ""
-        
-        # Split resource and consumer parts
-        if "_C_" not in rest:
-            # No consumer part, just resource
-            resource_part = rest.split("_A_")[0] if "_A_" in rest else rest
-            consumer_part = ""
-            late_attr = rest.split("_A_", 1)[1] if "_A_" in rest else ""
-        else:
-            resource_consumer = rest.split("_C_", 1)
-            resource_part = resource_consumer[0]
-            rest = resource_consumer[1] if len(resource_consumer) > 1 else ""
-            
-            # Split consumer and late attributes
-            if "_A_" not in rest:
-                consumer_part = rest
-                late_attr = ""
-            else:
-                consumer_late = rest.split("_A_", 1)
-                consumer_part = consumer_late[0]
-                late_attr = consumer_late[1] if len(consumer_late) > 1 else ""
-        
-        # Helper function to try to separate kind from id
-        # Strategy: Try splitting on last underscore if the last part looks like an ID
-        def split_kind_id(part: str) -> tuple:
-            if not part:
-                return "", ""
-            # Try to split on last underscore if the last part looks like an ID
-            if "_" in part:
-                parts_list = part.rsplit("_", 1)
-                if len(parts_list) == 2:
-                    potential_id = parts_list[1]
-                    # Check if it looks like an ID (number, decimal, or short value)
-                    if (potential_id.replace(".", "").replace("-", "").isdigit() or 
-                        potential_id in ["total", "0", "1", ""] or
-                        (len(potential_id) <= 15 and not "_" in potential_id)):  # Short, no underscores
-                        kind = parts_list[0].replace("_", " ") if parts_list[0] else ""
-                        return kind, potential_id
-            # If we can't determine, show the whole thing (replace underscores with spaces for readability)
-            return part.replace("_", " "), ""
-        
-        resource_kind, resource_id = split_kind_id(resource_part)
-        consumer_kind, consumer_id = split_kind_id(consumer_part)
-        
-        # Helper function to convert ID to int if it's numeric
-        def format_id(id_str: str) -> str:
-            if not id_str:
-                return ""
-            try:
-                # Try to convert to float first (handles "0.0", "1.5", etc.)
-                float_val = float(id_str)
-                # Convert to int if it's a whole number
-                if float_val.is_integer():
-                    return str(int(float_val))
-                else:
-                    return id_str  # Keep as is if it's not a whole number
-            except (ValueError, TypeError):
-                # If not numeric, return as is
-                return id_str
-        
-        # Format IDs as integers if they're numeric
-        resource_id_formatted = format_id(resource_id)
-        consumer_id_formatted = format_id(consumer_id)
-        
-        # Build formatted title
-        title_parts = [base_metric]
-        
-        # Add resource info if present
-        if resource_kind or resource_id_formatted:
-            resource_str = f"R: {resource_kind}"
-            if resource_id_formatted:
-                resource_str += f" {resource_id_formatted}"
-            title_parts.append(resource_str)
-        
-        # Add consumer info if present
-        if consumer_kind or consumer_id_formatted:
-            consumer_str = f"C: {consumer_kind}"
-            if consumer_id_formatted:
-                consumer_str += f" {consumer_id_formatted}"
-            title_parts.append(consumer_str)
-        
-        # Add late attributes if present (replace underscores with spaces for readability)
-        if late_attr:
-            late_attr_formatted = late_attr.replace("_", " ")
-            title_parts.append(f"A: {late_attr_formatted}")
-        
-        return " ".join(title_parts)
-    except Exception:
-        # If parsing fails, return the original metric_id with underscores replaced by spaces
-        return metric_id.replace("_", " ")
-
-def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
-    """Preprocess dataframe to have metric, timestamp, and value columns.
-    Metric column format: f"{metric}_R_{resource_kind}_{resource_id}_C_{consumer_kind}_{consumer_id}_A_{late_attributes}"
-    """
-    df = df.copy()
-    
-    # Fill NaN/empty values with empty string
-    for col in ["resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]:
-        if col in df.columns:
-            df[col] = df[col].fillna("")    
-    
-    df["metric_id"] = df.apply(_create_metric_id, axis=1)
-    
-    # Return only metric_id, timestamp, and value
-    result = df[["metric_id", "timestamp", "value"]].copy()
-    return result
-
-def get_color_palette(n_colors: int) -> List[str]:
-    """Get a color palette for n_colors time series.
-    Uses Plotly's qualitative color palettes and cycles through them if needed.
-    """
-    # Use Plotly's qualitative palettes
-    # Combine multiple palettes for more colors
-    palettes = [
-        pc.qualitative.Plotly,      # 10 colors
-        pc.qualitative.Set2,        # 8 colors
-        pc.qualitative.Set3,        # 12 colors
-        pc.qualitative.Pastel,      # 10 colors
-        pc.qualitative.Dark2,       # 8 colors
-        pc.qualitative.Pastel1,     # 9 colors
-        pc.qualitative.Pastel2,     # 8 colors
-    ]
-    
-    colors = []
-    for palette in palettes:
-        colors.extend(palette)
-        if len(colors) >= n_colors:
-            break
-    
-    # If still not enough, cycle through the colors
-    while len(colors) < n_colors:
-        colors.extend(colors[:min(len(colors), n_colors - len(colors))])
-    
-    return colors[:n_colors]
-
-def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
-    """Get the process active time range from the dataframe.
-    
-    Finds the actual process execution period by looking at process-level metrics
-    (consumer_kind='process') that have non-zero values. These metrics only have
-    values when the process is actually running.
-    Returns the first and last timestamps where the process was active.
-    """
-    if df.empty or "timestamp" not in df.columns:
-        return None, None
-    
-    # Filter for process-level data (consumer_kind == 'process')
-    process_df = df[df["consumer_kind"] == "process"].copy()
-    
-    if process_df.empty:
-        # Fallback: use all timestamps if no process-level data found
-        timestamps = df["timestamp"]
-        return timestamps.min(), timestamps.max()
-    
-    # Filter for any process-level metric with non-zero values
-    # Non-zero values indicate the process was active at that time
-    active_df = process_df[process_df["value"] > 0].copy()
-    
-    if active_df.empty:
-        # Fallback: use all process-level timestamps
-        timestamps = process_df["timestamp"]
-        return timestamps.min(), timestamps.max()
-    
-    # Get the first and last timestamps where process was active
-    timestamps = active_df["timestamp"]
-    proc_start = timestamps.min()
-    proc_end = timestamps.max()
-    
-    return proc_start, proc_end
-
-
-def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional[pd.Timestamp] = None, proc_end: Optional[pd.Timestamp] = None, full_time_range: Optional[tuple] = None) -> go.Figure:
-    """Create all time series as scrollable subplots.
-    
-    Args:
-        df_processed: Filtered dataframe with metric_id, timestamp, and value
-        proc_start: Process start time for gray highlight
-        proc_end: Process end time for gray highlight
-        full_time_range: Tuple of (min_time, max_time) for full measurement range to fix x-axis
-    """
-    if df_processed.empty:
-        return go.Figure()
-    
-    # Get unique metric_ids
-    unique_metrics = df_processed["metric_id"].unique()
-    n_metrics = len(unique_metrics)
-
-    if n_metrics == 0:
-        return go.Figure()
-    
-    # Get full time range for x-axis (use provided range or calculate from data)
-    if full_time_range:
-        x_min, x_max = full_time_range
-    else:
-        x_min = df_processed["timestamp"].min()
-        x_max = df_processed["timestamp"].max()
-    
-    # Get color palette
-    colors = get_color_palette(n_metrics)
-    color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
-    
-    # Vertical spacing between subplots
-    max_spacing = 1.0 / (n_metrics - 1) if n_metrics > 1 else 0.05
-    vertical_spacing = min(0.05, max_spacing * 0.8)  
-    
-    # Create subplots with formatted titles
-    formatted_titles = [_format_metric_title(metric_id) for metric_id in unique_metrics]
-    fig = make_subplots(
-        rows=n_metrics, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=vertical_spacing,
-        subplot_titles=[f"<b>{title}</b>" for title in formatted_titles],
-    )
-
-    # Pre-calculate y-axis ranges for each metric (needed for process active zone)
-    y_ranges = {}
-    for metric_id in unique_metrics:
-        metric_data = df_processed[df_processed["metric_id"] == metric_id]
-        y_min = metric_data["value"].min()
-        y_max = metric_data["value"].max()
-        y_range = y_max - y_min if y_max != y_min else abs(y_max) if y_max != 0 else 1
-        y_padding = 0.1 * y_range if y_range > 0 else 0.1
-        y_ranges[metric_id] = {
-            "min": y_min - y_padding,
-            "max": y_max + y_padding
-        }
-
-    # Add gray highlighted zone for process active period FIRST (so it appears behind data)
-    # This will show in the legend and provide the visual highlighting
-    if proc_start and proc_end:
-        for idx in range(1, n_metrics + 1):
-            metric_id = unique_metrics[idx-1]
-            y_bottom = y_ranges[metric_id]["min"]
-            y_top = y_ranges[metric_id]["max"]
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=[proc_start, proc_start, proc_end, proc_end, proc_start],
-                    y=[y_bottom, y_top, y_top, y_bottom, y_bottom],
-                    mode="lines",
-                    fill="toself",
-                    fillcolor="rgba(136, 192, 208, 0.12)",
-                    line=dict(width=0),
-                    name="Process Active" if idx == 1 else "",
-                    showlegend=(idx == 1),  # Only show in legend once
-                    legendgroup="process_active",
-                    hoverinfo="text",
-                    hovertext=f"Process Active Period<br>{proc_start.strftime('%H:%M:%S.%L')} - {proc_end.strftime('%H:%M:%S.%L')}",
-                ),
-                row=idx, col=1
-            )
-
-    # Add traces for each metric (on top of process active zone)
-    for idx, metric_id in enumerate(unique_metrics, start=1):
-        metric_data = df_processed[df_processed["metric_id"] == metric_id].sort_values("timestamp")
-        color = color_map[metric_id]
-
-        # Convert hex color to rgba for fillcolor
-        if color.startswith('#'):
-            hex_color = color.lstrip('#')
-            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-            rgba_fill = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.15)"
-        elif color.startswith('rgba'):
-            # Already rgba, just adjust opacity
-            rgba_fill = color.rsplit(',', 1)[0] + ', 0.15)'
-        elif color.startswith('rgb'):
-            # Convert rgb to rgba
-            rgba_fill = color.replace('rgb', 'rgba').replace(')', ', 0.15)')
-        else:
-            # Default fallback
-            rgba_fill = "rgba(136, 192, 208, 0.15)"
-
-        fig.add_trace(
-            go.Scatter(
-                x=metric_data["timestamp"],
-                y=metric_data["value"],
-                mode="lines",
-                name=metric_id,
-                line=dict(color=color, width=2),
-                fill="tozeroy",
-                fillcolor=rgba_fill,
-                hovertemplate=f"<b>{metric_id}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
-                showlegend=False,
-            ),
-            row=idx, col=1
-        )
-        
-        # Fix x-axis range to full measurement time
-        fig.update_xaxes(
-            range=[x_min, x_max],
-            gridcolor="rgba(76, 86, 106, 0.2)",
-            row=idx, col=1
-        )
-        fig.update_yaxes(title_text="Value", row=idx, col=1, gridcolor="rgba(76, 86, 106, 0.2)")
-    
-    # Update layout
-    fig.update_xaxes(title_text="Time", row=n_metrics, col=1)
-    
-    # Calculate height: use a fixed height per subplot, but allow it to grow
-    # Each subplot gets 250px for better visibility
-    subplot_height = 250
-    total_height = subplot_height * n_metrics
-    
-    fig.update_layout(
-        height=total_height,  # Total height for all subplots
-        title=dict(text="<b>📈 Time series of all metrics</b>", x=0.5, font=dict(size=16)),
-        paper_bgcolor="rgba(46, 52, 64, 0.95)",
-        plot_bgcolor="rgba(59, 66, 82, 0.7)",
-        font=dict(color="#d8dee9"),
-        hovermode="x unified",
-        margin=dict(l=50, r=20, t=60, b=40),  # Reduced margins for wider plots
-        autosize=True,  # Enable autosize to fill container width
-        width=None,  # Let it fill the container
-        showlegend=True,  # Ensure legend is visible
-        legend=dict(
-            bgcolor="rgba(46, 52, 64, 0.8)",
-            bordercolor="rgba(136, 192, 208, 0.3)",
-            borderwidth=1,
-            font=dict(color="#d8dee9"),
-        ),
-    )
-    fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.04), row=n_metrics, col=1)
-    
-    return fig
 
 # App Layout
 app.layout = dbc.Container(
@@ -469,7 +40,7 @@ app.layout = dbc.Container(
                                     style={"height": "60px", "width": "auto", "marginRight": "15px"}
                                 ),
                                 html.H1(
-                                    "Alumet Energy Benchmark",
+                                    "Alumet Energy Visualization",
                                     style={
                                         "margin": "0",
                                         "color": "#ECEFF4",
@@ -575,7 +146,7 @@ app.layout = dbc.Container(
             ],
         ),
         
-        # Configuration Section - Two Cards Side by Side
+        # File Path Selection Section
         dbc.Row(
             [
                 dbc.Col(
@@ -583,7 +154,7 @@ app.layout = dbc.Container(
                         dbc.Card(
                             [
                                 dbc.CardHeader(
-                                    "⚙️ Measurement Configuration",
+                                    "Upload Measurement Files",
                                     style={
                                         "backgroundColor": "#434C5E",
                                         "color": "#ECEFF4",
@@ -598,7 +169,10 @@ app.layout = dbc.Container(
                                         html.Div(
                                             [
                                                 html.Label(
-                                                    "Poll interval (ms)",
+                                                    [
+                                                        "CSV File: ",
+                                                        html.Span("(Required)", style={"color": "#BF616A", "fontSize": "0.85rem", "fontWeight": "400"}),
+                                                    ],
                                                     style={
                                                         "color": "#ECEFF4",
                                                         "marginBottom": "10px",
@@ -606,116 +180,52 @@ app.layout = dbc.Container(
                                                         "fontWeight": "500",
                                                     }
                                                 ),
-                                                dcc.Slider(
-                                                    id="poll-interval-slider",
-                                                    min=5,
-                                                    max=100,
-                                                    step=5,
-                                                    value=20,
-                                                    marks={i: str(i) for i in range(5, 101, 20)},
-                                                    tooltip={"placement": "bottom", "always_visible": False},
-                                                ),
-                                                html.Div(
-                                                    id="poll-interval-value",
+                                                dcc.Upload(
+                                                    id="csv-file-upload",
+                                                    children=html.Div(id="csv-upload-children"),
+                                                    disabled=False,
                                                     style={
-                                                        "color": "#88C0D0",
-                                                        "marginTop": "10px",
-                                                        "fontSize": "0.95rem",
-                                                        "fontWeight": "600",
-                                                    }
-                                                ),
-                                            ],
-                                            style={"marginBottom": "25px"},
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Label(
-                                                    "Refresh interval (ms)",
-                                                    style={
-                                                        "color": "#ECEFF4",
-                                                        "marginBottom": "10px",
-                                                        "fontSize": "1rem",
-                                                        "fontWeight": "500",
-                                                    }
-                                                ),
-                                                dcc.Slider(
-                                                    id="refresh-interval-slider",
-                                                    min=5,
-                                                    max=100,
-                                                    step=5,
-                                                    value=20,
-                                                    marks={i: str(i) for i in range(5, 101, 20)},
-                                                    tooltip={"placement": "bottom", "always_visible": False},
-                                                ),
-                                                html.Div(
-                                                    id="refresh-interval-value",
-                                                    style={
-                                                        "color": "#88C0D0",
-                                                        "marginTop": "10px",
-                                                        "fontSize": "0.95rem",
-                                                        "fontWeight": "600",
-                                                    }
-                                                ),
-                                            ],
-                                        ),
-                                    ],
-                                    style={"padding": "25px", "backgroundColor": "#3B4252"},
-                                ),
-                            ],
-                            color="dark",
-                            inverse=True,
-                            style={"height": "100%", "marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
-                        ),
-                    ],
-                    width=12,
-                    lg=6,
-                    className="mb-3",
-                ),
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardHeader(
-                                    "🚀 Benchmark Configuration",
-                                    style={
-                                        "backgroundColor": "#434C5E",
-                                        "color": "#ECEFF4",
-                                        "fontSize": "1.2rem",
-                                        "fontWeight": "600",
-                                        "padding": "15px",
-                                        "borderBottom": "2px solid #A3BE8C",
-                                    }
-                                ),
-                                dbc.CardBody(
-                                    [
-                                        html.Div(
-                                            [
-                                                html.Label(
-                                                    "Problem type",
-                                                    style={
-                                                        "color": "#ECEFF4",
-                                                        "marginBottom": "10px",
-                                                        "fontSize": "1rem",
-                                                        "fontWeight": "500",
-                                                    }
-                                                ),
-                                                dcc.Dropdown(
-                                                    id="case-study-dropdown",
-                                                    options=list(CASE_STUDY_OPTIONS.keys()),
-                                                    value="GEMM (Matrix Multiplication)",
-                                                    style={
+                                                        "width": "100%",
+                                                        "height": "60px",
+                                                        "lineHeight": "60px",
+                                                        "borderWidth": "2px",
+                                                        "borderStyle": "dashed",
+                                                        "borderRadius": "8px",
+                                                        "borderColor": "#5E81AC",
+                                                        "textAlign": "center",
                                                         "backgroundColor": "#434C5E",
                                                         "color": "#ECEFF4",
+                                                        "cursor": "pointer",
+                                                        "margin": "0",
                                                     },
-                                                    className="dark-dropdown",
+                                                    style_active={
+                                                        "borderColor": "#88C0D0",
+                                                        "backgroundColor": "#3B4252",
+                                                    },
+                                                    style_reject={
+                                                        "borderColor": "#BF616A",
+                                                        "backgroundColor": "#3B4252",
+                                                    },
+                                                    accept=".csv",
+                                                ),
+                                                html.Div(
+                                                    id="csv-upload-status",
+                                                    style={
+                                                        "marginTop": "8px",
+                                                        "fontSize": "0.9rem",
+                                                        "color": "#88C0D0",
+                                                    }
                                                 ),
                                             ],
-                                            style={"marginBottom": "25px"},
+                                            style={"marginBottom": "20px"},
                                         ),
                                         html.Div(
                                             [
                                                 html.Label(
-                                                    "Array size (N)",
+                                                    [
+                                                        "Log File: ",
+                                                        html.Span("(Required)", style={"color": "#BF616A", "fontSize": "0.85rem", "fontWeight": "400"}),
+                                                    ],
                                                     style={
                                                         "color": "#ECEFF4",
                                                         "marginBottom": "10px",
@@ -723,31 +233,52 @@ app.layout = dbc.Container(
                                                         "fontWeight": "500",
                                                     }
                                                 ),
-                                                dcc.Slider(
-                                                    id="array-size-slider",
-                                                    min=256,
-                                                    max=4096,
-                                                    step=256,
-                                                    value=1024,
-                                                    marks={i: str(i) for i in range(256, 4097, 768)},
-                                                    tooltip={"placement": "bottom", "always_visible": False},
+                                                dcc.Upload(
+                                                    id="log-file-upload",
+                                                    children=html.Div(id="log-upload-children"),
+                                                    disabled=False,
+                                                    style={
+                                                        "width": "100%",
+                                                        "height": "60px",
+                                                        "lineHeight": "60px",
+                                                        "borderWidth": "2px",
+                                                        "borderStyle": "dashed",
+                                                        "borderRadius": "8px",
+                                                        "borderColor": "#5E81AC",
+                                                        "textAlign": "center",
+                                                        "backgroundColor": "#434C5E",
+                                                        "color": "#ECEFF4",
+                                                        "cursor": "pointer",
+                                                        "margin": "0",
+                                                    },
+                                                    style_active={
+                                                        "borderColor": "#88C0D0",
+                                                        "backgroundColor": "#3B4252",
+                                                    },
+                                                    style_reject={
+                                                        "borderColor": "#BF616A",
+                                                        "backgroundColor": "#3B4252",
+                                                    },
+                                                    accept=".log,.txt",
                                                 ),
                                                 html.Div(
-                                                    id="array-size-value",
+                                                    id="log-upload-status",
                                                     style={
+                                                        "marginTop": "8px",
+                                                        "fontSize": "0.9rem",
                                                         "color": "#88C0D0",
-                                                        "marginTop": "10px",
-                                                        "fontSize": "0.95rem",
-                                                        "fontWeight": "600",
                                                     }
                                                 ),
                                             ],
-                                            style={"marginBottom": "25px"},
+                                            style={"marginBottom": "20px"},
                                         ),
                                         html.Div(
                                             [
                                                 html.Label(
-                                                    "Iterations",
+                                                    [
+                                                        "Config TOML File: ",
+                                                        html.Span("(Optional)", style={"color": "#88C0D0", "fontSize": "0.85rem", "fontWeight": "400"}),
+                                                    ],
                                                     style={
                                                         "color": "#ECEFF4",
                                                         "marginBottom": "10px",
@@ -755,22 +286,40 @@ app.layout = dbc.Container(
                                                         "fontWeight": "500",
                                                     }
                                                 ),
-                                                dcc.Slider(
-                                                    id="num-iterations-slider",
-                                                    min=1,
-                                                    max=20,
-                                                    step=1,
-                                                    value=3,
-                                                    marks={i: str(i) for i in range(1, 21, 5)},
-                                                    tooltip={"placement": "bottom", "always_visible": False},
+                                                dcc.Upload(
+                                                    id="config-file-upload",
+                                                    children=html.Div(id="config-upload-children"),
+                                                    disabled=False,
+                                                    style={
+                                                        "width": "100%",
+                                                        "height": "60px",
+                                                        "lineHeight": "60px",
+                                                        "borderWidth": "2px",
+                                                        "borderStyle": "dashed",
+                                                        "borderRadius": "8px",
+                                                        "borderColor": "#5E81AC",
+                                                        "textAlign": "center",
+                                                        "backgroundColor": "#434C5E",
+                                                        "color": "#ECEFF4",
+                                                        "cursor": "pointer",
+                                                        "margin": "0",
+                                                    },
+                                                    style_active={
+                                                        "borderColor": "#88C0D0",
+                                                        "backgroundColor": "#3B4252",
+                                                    },
+                                                    style_reject={
+                                                        "borderColor": "#BF616A",
+                                                        "backgroundColor": "#3B4252",
+                                                    },
+                                                    accept=".toml",
                                                 ),
                                                 html.Div(
-                                                    id="num-iterations-value",
+                                                    id="config-upload-status",
                                                     style={
+                                                        "marginTop": "8px",
+                                                        "fontSize": "0.9rem",
                                                         "color": "#88C0D0",
-                                                        "marginTop": "10px",
-                                                        "fontSize": "0.95rem",
-                                                        "fontWeight": "600",
                                                     }
                                                 ),
                                             ],
@@ -781,18 +330,16 @@ app.layout = dbc.Container(
                             ],
                             color="dark",
                             inverse=True,
-                            style={"height": "100%", "marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+                            style={"marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
                         ),
                     ],
                     width=12,
-                    lg=6,
-                    className="mb-3",
                 ),
             ],
             className="mb-4",
         ),
         
-        # Run Button and Status Section
+        # Visualize Button and Status Section
         dbc.Row(
             [
                 dbc.Col(
@@ -804,19 +351,19 @@ app.layout = dbc.Container(
                                         html.Div(
                                             [
                                                 dbc.Button(
-                                                    "▶ Run Benchmark",
-                                                    id="run-button",
+                                                    "📊 Visualize",
+                                                    id="visualize-button",
                                                     n_clicks=0,
-                                                    color="success",
+                                                    color="primary",
                                                     size="lg",
                                                     style={
                                                         "fontSize": "1.1rem",
                                                         "fontWeight": "600",
                                                         "padding": "15px 40px",
                                                         "width": "100%",
-                                                        "backgroundColor": "#A3BE8C",
-                                                        "borderColor": "#A3BE8C",
-                                                        "color": "#2E3440",
+                                                        "backgroundColor": "#5E81AC",
+                                                        "borderColor": "#5E81AC",
+                                                        "color": "#ECEFF4",
                                                     },
                                                 ),
                                             ],
@@ -899,7 +446,7 @@ app.layout = dbc.Container(
         dcc.Store(id="processed-df-store", data=None),  # Store processed dataframe
         dcc.Store(id="original-df-store", data=None),  # Store original dataframe
         dcc.Store(id="process-time-range-store", data=None),  # Store process time range
-        dcc.Store(id="dummy-config-update", data=None),  # Trigger for config updates
+        dcc.Store(id="config-file-path-store", data=None),  # Store config file path
     ],
     style={
         "backgroundColor": "#2E3440",
@@ -909,70 +456,329 @@ app.layout = dbc.Container(
     },
 )
 
-# Callbacks
+# Callbacks for upload status detection
 @app.callback(
-    [Output("poll-interval-value", "children"),
-     Output("refresh-interval-value", "children"),
-     Output("array-size-value", "children"),
-     Output("num-iterations-value", "children")],
-    [Input("poll-interval-slider", "value"),
-     Input("refresh-interval-slider", "value"),
-     Input("array-size-slider", "value"),
-     Input("num-iterations-slider", "value")]
+    Output("csv-file-upload", "disabled"),
+    Output("csv-file-upload", "style"),
+    Output("csv-upload-children", "children"),
+    Output("csv-upload-status", "children"),
+    Output("csv-file-upload", "contents"),  # Clear contents if invalid
+    Input("csv-file-upload", "contents"),
+    State("csv-file-upload", "filename"),
 )
-def update_slider_values(poll_interval, refresh_interval, array_size, num_iterations):
-    return (
-        f"Value: {poll_interval} ms",
-        f"Value: {refresh_interval} ms",
-        f"Value: {array_size}",
-        f"Value: {num_iterations}",
-    )
+def update_csv_upload_status(contents, filename):
+    if contents is not None:
+        # Validate file extension
+        if not validate_file_extension(filename, ['.csv']):
+            # Invalid file type - show error and clear upload
+            error_style = {
+                "width": "100%",
+                "height": "60px",
+                "lineHeight": "60px",
+                "borderWidth": "2px",
+                "borderStyle": "solid",
+                "borderRadius": "8px",
+                "borderColor": "#BF616A",
+                "textAlign": "center",
+                "backgroundColor": "#3B4252",
+                "color": "#BF616A",
+                "cursor": "pointer",
+                "margin": "0",
+            }
+            return (
+                False, # upload section is ot disabled (allow re-upload)
+                error_style,
+                html.Div([
+                    "❌ Invalid File Type",
+                ]),
+                html.Span(
+                    f"Error: File must be .csv format. Uploaded: {Path(filename).suffix if filename else 'Unknown'}",
+                    style={"color": "#BF616A", "fontWeight": "500"}
+                ),
+                None, # contents are cleared
+            )
+        
+        # File uploaded and valid - disable and show success
+        disabled_style = {
+            "width": "100%",
+            "height": "60px",
+            "lineHeight": "60px",
+            "borderWidth": "2px",
+            "borderStyle": "solid",
+            "borderRadius": "8px",
+            "borderColor": "#A3BE8C",
+            "textAlign": "center",
+            "backgroundColor": "#3B4252",
+            "color": "#A3BE8C",
+            "cursor": "not-allowed",
+            "margin": "0",
+            "opacity": "0.7",
+        }
+        return (
+            True, # upload section is disabled
+            disabled_style,
+            html.Div([
+                "✅ CSV File Uploaded",
+            ]),
+            html.Span("File uploaded successfully", style={"color": "#A3BE8C", "fontWeight": "500"}),
+            contents, # contents are kept
+        )
+    else:
+        # No file uploaded,upload section is enabled and default style is shown
+        default_style = {
+            "width": "100%",
+            "height": "60px",
+            "lineHeight": "60px",
+            "borderWidth": "2px",
+            "borderStyle": "dashed",
+            "borderRadius": "8px",
+            "borderColor": "#5E81AC",
+            "textAlign": "center",
+            "backgroundColor": "#434C5E",
+            "color": "#ECEFF4",
+            "cursor": "pointer",
+            "margin": "0",
+        }
+        return (
+            False, # upload section is not disabled
+            default_style,
+            html.Div([
+                "Drag and Drop or ",
+                html.A("Select CSV File", style={"color": "#5E81AC", "textDecoration": "underline", "cursor": "pointer"}),
+            ]),
+            html.Span("", style={"display": "none"}),
+            None, # no contents are uploaded
+        )
+
+@app.callback(
+    Output("log-file-upload", "disabled"),
+    Output("log-file-upload", "style"),
+    Output("log-upload-children", "children"),
+    Output("log-upload-status", "children"),
+    Output("log-file-upload", "contents"), # contents are cleared if invalid
+    Input("log-file-upload", "contents"),
+    State("log-file-upload", "filename"),
+)
+def update_log_upload_status(contents, filename):
+    if contents is not None:
+        # Validate file extension
+        if not validate_file_extension(filename, ['.log', '.txt']):
+            # Invalid file type - show error and clear upload
+            error_style = {
+                "width": "100%",
+                "height": "60px",
+                "lineHeight": "60px",
+                "borderWidth": "2px",
+                "borderStyle": "solid",
+                "borderRadius": "8px",
+                "borderColor": "#BF616A",
+                "textAlign": "center",
+                "backgroundColor": "#3B4252",
+                "color": "#BF616A",
+                "cursor": "pointer",
+                "margin": "0",
+            }
+            return (
+                False, # upload section is not disabled (allow re-upload)
+                error_style,
+                html.Div([
+                    "❌ Invalid File Type",
+                ]),
+                html.Span(
+                    f"Error: File must be .log or .txt format. Uploaded: {Path(filename).suffix if filename else 'unknown'}",
+                    style={"color": "#BF616A", "fontWeight": "500"}
+                ),
+                None, # contents are cleared
+            )
+        
+        # File uploaded and valid - disable and show success
+        disabled_style = {
+            "width": "100%",
+            "height": "60px",
+            "lineHeight": "60px",
+            "borderWidth": "2px",
+            "borderStyle": "solid",
+            "borderRadius": "8px",
+            "borderColor": "#A3BE8C",
+            "textAlign": "center",
+            "backgroundColor": "#3B4252",
+            "color": "#A3BE8C",
+            "cursor": "not-allowed",
+            "margin": "0",
+            "opacity": "0.7",
+        }
+        return (
+            True, # upload section is disabled
+            disabled_style,
+            html.Div([
+                "✅ Log File Uploaded",
+            ]),
+            html.Span("File uploaded successfully", style={"color": "#A3BE8C", "fontWeight": "500"}),
+            contents, # contents are kept
+        )
+    else:
+        # No file uploaded, upload section is enabled and default style is shown
+        default_style = {
+            "width": "100%",
+            "height": "60px",
+            "lineHeight": "60px",
+            "borderWidth": "2px",
+            "borderStyle": "dashed",
+            "borderRadius": "8px",
+            "borderColor": "#5E81AC",
+            "textAlign": "center",
+            "backgroundColor": "#434C5E",
+            "color": "#ECEFF4",
+            "cursor": "pointer",
+            "margin": "0",
+        }
+        return (
+            False, # upload section is not disabled
+            default_style,
+            html.Div([
+                "Drag and Drop or ",
+                html.A("Select Log File", style={"color": "#5E81AC", "textDecoration": "underline", "cursor": "pointer"}),
+            ]),
+            html.Span("", style={"display": "none"}),
+            None, # no contents are uploaded
+        )
+
+@app.callback(
+    Output("config-file-upload", "disabled"),
+    Output("config-file-upload", "style"),
+    Output("config-upload-children", "children"),
+    Output("config-upload-status", "children"),
+    Output("config-file-upload", "contents"),  # Clear contents if invalid
+    Input("config-file-upload", "contents"),
+    State("config-file-upload", "filename"),
+)
+def update_config_upload_status(contents, filename):
+    if contents is not None:
+        # Validate file extension
+        if not validate_file_extension(filename, ['.toml']):
+            # Invalid file type - show error and clear upload
+            error_style = {
+                "width": "100%",
+                "height": "60px",
+                "lineHeight": "60px",
+                "borderWidth": "2px",
+                "borderStyle": "solid",
+                "borderRadius": "8px",
+                "borderColor": "#BF616A",
+                "textAlign": "center",
+                "backgroundColor": "#3B4252",
+                "color": "#BF616A",
+                "cursor": "pointer",
+                "margin": "0",
+            }
+            return (
+                False, # upload section is not disabled (allow re-upload)
+                error_style,
+                html.Div([
+                    "❌ Invalid File Type",
+                ]),
+                html.Span(
+                    f"Error: File must be .toml format. Uploaded: {Path(filename).suffix if filename else 'Unknown'}",
+                    style={"color": "#BF616A", "fontWeight": "500"}
+                ),
+                None, # contents are cleared
+            )
+        
+        # File uploaded and valid - disable and show success
+        disabled_style = {
+            "width": "100%",
+            "height": "60px",
+            "lineHeight": "60px",
+            "borderWidth": "2px",
+            "borderStyle": "solid",
+            "borderRadius": "8px",
+            "borderColor": "#A3BE8C",
+            "textAlign": "center",
+            "backgroundColor": "#3B4252",
+            "color": "#A3BE8C",
+            "cursor": "not-allowed",
+            "margin": "0",
+            "opacity": "0.7",
+        }
+        return (
+            True, # upload section is disabled
+            disabled_style,
+            html.Div([
+                "✅ Config File Uploaded",
+            ]),
+            html.Span("File uploaded successfully", style={"color": "#A3BE8C", "fontWeight": "500"}),
+            contents, # contents are kept
+        )
+    else:
+        # No file - enable and show default
+        default_style = {
+            "width": "100%",
+            "height": "60px",
+            "lineHeight": "60px",
+            "borderWidth": "2px",
+            "borderStyle": "dashed",
+            "borderRadius": "8px",
+            "borderColor": "#5E81AC",
+            "textAlign": "center",
+            "backgroundColor": "#434C5E",
+            "color": "#ECEFF4",
+            "cursor": "pointer",
+            "margin": "0",
+        }
+        return (
+            False, # upload section is not disabled
+            default_style,
+            html.Div([
+                "Drag and Drop or ",
+                html.A("Select Config TOML File", style={"color": "#5E81AC", "textDecoration": "underline", "cursor": "pointer"}),
+            ]),
+            html.Span("", style={"display": "none"}),
+            None, # no contents are uploaded
+        )
 
 @app.callback(
     Output("pid-display", "children"),
     Output("device-display", "children"),
-    Input("run-button", "n_clicks"),
-    Input("dummy-config-update", "data"),  # Also trigger on config updates
+    Input("visualize-button", "n_clicks"),
+    State("log-file-upload", "contents"),
+    State("csv-file-upload", "contents"),
 )
-def update_process_info(n_clicks, config_data):
-    pid = extract_pid(LOG_FILE)
-    device = "gpu" if is_gpu(LOG_FILE) else "cpu"
-    return (
-        f"process id: {pid or 'N/A'}",
-        f"device: {device}",
-    )
-
-@app.callback(
-    Output("dummy-config-update", "data"),
-    Input("poll-interval-slider", "value"),
-    Input("refresh-interval-slider", "value"),
-)
-def update_config_on_slider_change(poll_interval, refresh_interval):
-    """Update config file when sliders change."""
-    update_config_value(CONFIG_FILE, 'refresh_interval', f"{refresh_interval}ms")
-    update_config_value(CONFIG_FILE, 'poll_interval', f"{poll_interval}ms")
-    return None
+def update_process_info(n_clicks, log_file_contents, csv_file_contents):
+    if n_clicks == 0 or not csv_file_contents:
+        return "process id: N/A", "device: N/A"
+    
+    # If log file is provided, extract info from it
+    if log_file_contents:
+        log_content = parse_uploaded_file_contents(log_file_contents)
+        pid = extract_pid_from_content(log_content)
+        device = "gpu" if is_gpu_from_content(log_content) else "cpu"
+        return (
+            f"process id: {pid or 'N/A'}",
+            f"device: {device}",
+        )
+    
+    # If no log file, show N/A
+    return "process id: N/A", "device: N/A"
 
 @app.callback(
     Output("status-message", "children"),
     Output("processed-df-store", "data"),
     Output("original-df-store", "data"),
     Output("process-time-range-store", "data"),
-    Input("run-button", "n_clicks"),
-    State("case-study-dropdown", "value"),
-    State("array-size-slider", "value"),
-    State("num-iterations-slider", "value"),
-    State("poll-interval-slider", "value"),
-    State("refresh-interval-slider", "value"),
+    Output("config-file-path-store", "data"),
+    Input("visualize-button", "n_clicks"),
+    State("log-file-upload", "contents"),
+    State("csv-file-upload", "contents"),
+    State("config-file-upload", "contents"),
 )
-def run_benchmark(n_clicks, case_study_value, array_size, num_iterations, poll_interval, refresh_interval):
+def load_and_visualize(n_clicks, log_file_contents, csv_file_contents, config_file_contents):
     if n_clicks == 0:
         return (
             dbc.Alert(
                 [
-                    "Configure parameters above and click ",
-                    html.Strong("Run Benchmark"),
-                    " to start.",
+                    "Upload files above and click ",
+                    html.Strong("Visualize"),
+                    " to load and visualize data.",
                 ],
                 color="info",
                 style={"margin": "0"},
@@ -980,126 +786,82 @@ def run_benchmark(n_clicks, case_study_value, array_size, num_iterations, poll_i
             None,
             None,
             None,
+            None,
         )
     
-    case_studies_dir = BASE_DIR.parent.parent / "case_studies"
-    
-    # Get values from UI elements
-    cs = CASE_STUDY_OPTIONS[case_study_value]
-    n = str(array_size)
-    iters = str(num_iterations)
-    config_file = CONFIG_FILE.resolve()
-    log_file = LOG_FILE.resolve()
-    
-    benchmark_script = case_studies_dir / f"{cs}.py"
-    benchmark_cmd = f"python3 '{benchmark_script}' {n} {iters}"
-    full_cmd = f"alumet-agent --config='{config_file}' exec {benchmark_cmd} 2> '{log_file}'"
-    
-    try:
-        with open(log_file, "w") as log_file:
-            result = subprocess.run(
-                full_cmd, 
-                shell=True, 
-                executable='/bin/bash',
-                stdout=log_file,  # Pass file object, not Path
-                stderr=subprocess.STDOUT, 
-                text=True,
-                timeout=600,
-                cwd=str(BASE_DIR / "03_rapl_perf_energy"),
-                env=os.environ.copy() 
-            )
-
-        if result.returncode != 0:
-            with open(log_file, "r") as f:
-                error_content = f.read()
-            raise RuntimeError(error_content)
-        success = True
-    except subprocess.TimeoutExpired:
+    # Validate required CSV file
+    if not csv_file_contents:
         status_msg = dbc.Alert(
             [
-                html.Strong("⏱ Timeout: "),
-                "Benchmark exceeded 5 minutes"
+                html.Strong("Error: "),
+                "CSV file is required. Please upload a CSV file."
             ],
             color="danger",
             style={"margin": "0"},
         )
-        return status_msg, None, None, None
-    except Exception as e:
+        return status_msg, None, None, None, None
+    
+    # Validate required log file
+    if not log_file_contents:
         status_msg = dbc.Alert(
             [
                 html.Strong("Error: "),
+                "Log file is required. Please upload a log file to extract process ID and device information."
+            ],
+            color="danger",
+            style={"margin": "0"},
+        )
+        return status_msg, None, None, None, None
+    
+    try:
+        # Load all data from CSV contents
+        df_all = load_csv_from_contents(csv_file_contents)
+        
+        # Preprocess dataframe for all time series visualization
+        df_processed = preprocess_dataframe_for_visualization(df_all)
+        
+        # Get process time range from the dataframe
+        proc_start, proc_end = get_process_time_range_from_df(df_all)
+        proc_duration = (proc_end - proc_start).total_seconds() if proc_start and proc_end else 0
+        
+        # Build success message with file validation info
+        file_info = []
+        if config_file_contents:
+            file_info.append("optional config file uploaded.")
+        file_status = f" ({', '.join(file_info)})" if file_info else ""
+        
+        status_msg = dbc.Alert(
+            [
+                "✅ ",
+                html.Strong("Data loaded successfully"),
+                f" — runtime: {proc_duration:.2f}s{file_status}"
+            ],
+            color="success",
+            style={"margin": "0"},
+        )
+        
+        # Store dataframes as JSON
+        df_processed_json = df_processed.to_dict('records') if not df_processed.empty else None
+        df_all_json = df_all.to_dict('records') if not df_all.empty else None
+        process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
+                             "end": proc_end.isoformat() if proc_end else None}
+        
+        # Store config file contents if provided (as base64 string)
+        config_contents_str = config_file_contents if config_file_contents else None
+        
+        return status_msg, df_processed_json, df_all_json, process_time_range, config_contents_str
+        
+    except Exception as e:
+        status_msg = dbc.Alert(
+            [
+                "🚨 ",
+                html.Strong("Error loading data: "),
                 str(e)
             ],
             color="danger",
             style={"margin": "0"},
         )
-        return status_msg, None, None, None
-    
-    if success and CSV_FILE.exists():
-        try:
-            # Load all data
-            df_all = load_alumet_csv(CSV_FILE)
-            
-            # Preprocess dataframe for all time series visualization
-            df_processed = preprocess_dataframe_for_visualization(df_all)
-            
-            # Get process time range from the dataframe
-            proc_start, proc_end = get_process_time_range_from_df(df_all)
-            proc_duration = (proc_end - proc_start).total_seconds() if proc_start and proc_end else 0
-            
-            status_msg = dbc.Alert(
-                [
-                    "✅ ",
-                    html.Strong("Success"),
-                    f" — runtime: {proc_duration:.2f}s"
-                ],
-                color="success",
-                style={"margin": "0"},
-            )
-            
-            # Store dataframes as JSON
-            df_processed_json = df_processed.to_dict('records') if not df_processed.empty else None
-            df_all_json = df_all.to_dict('records') if not df_all.empty else None
-            process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
-                                 "end": proc_end.isoformat() if proc_end else None}
-            
-            return status_msg, df_processed_json, df_all_json, process_time_range
-            
-        except Exception as e:
-            status_msg = dbc.Alert(
-                [
-                    "🚨 ",
-                    html.Strong("Error: "),
-                    str(e)
-                ],
-                color="danger",
-                style={"margin": "0"},
-            )
-            return status_msg, None, None, None
-    elif success:
-        # Success but output file doesn't exist
-        return (
-            dbc.Alert(
-                "Benchmark completed but output file not found.",
-                color="danger",
-                style={"margin": "0"},
-            ),
-            None,
-            None,
-            None,
-        )
-    
-    # Should not reach here, but just in case
-    return (
-        dbc.Alert(
-            "No results available.",
-            color="info",
-            style={"margin": "0"},
-        ),
-        None,
-        None,
-        None,
-    )
+        return status_msg, None, None, None, None
 
 @app.callback(
     Output("tab-content", "children"),
@@ -1113,7 +875,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
         # First tab: All time series as scrollable subplots with filtering
         if not processed_df_data:
             return dbc.Alert(
-                "*No data available. Please run a benchmark first.*",
+                "*No data available. Please load data using the Visualize button.*",
                 color="info",
                 style={"margin": "0"},
             )
@@ -1237,7 +999,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
     else:  # comparative-tab - 2x2 grid
         if not original_df_data:
             return dbc.Alert(
-                "*No data available. Please run a benchmark first.*",
+                "*No data available. Please load data using the Visualize button.*",
                 color="info",
                 style={"margin": "0"},
             )
@@ -1487,29 +1249,58 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
 @app.callback(
     Output({"type": "filter-dropdowns", "index": ALL}, "children"),
     Input({"type": "metric-dropdown", "index": ALL}, "value"),
+    Input({"type": "resource-kind-dropdown", "index": ALL}, "value"),
+    Input({"type": "consumer-kind-dropdown", "index": ALL}, "value"),
     State("original-df-store", "data"),
     State({"type": "metric-dropdown", "index": ALL}, "id"),
+    State({"type": "resource-kind-dropdown", "index": ALL}, "id"),
+    State({"type": "consumer-kind-dropdown", "index": ALL}, "id"),
 )
-def update_filter_dropdowns(selected_metrics, original_df_data, dropdown_ids):
+def update_filter_dropdowns(selected_metrics, selected_resource_kinds, selected_consumer_kinds,
+                           original_df_data, metric_dropdown_ids, resource_kind_dropdown_ids, consumer_kind_dropdown_ids):
     # Always return 4 items (2x2 grid)
     num_plots = 4
-    if not original_df_data or not dropdown_ids or len(dropdown_ids) != num_plots:
+    if not original_df_data or not metric_dropdown_ids or len(metric_dropdown_ids) != num_plots:
         return [html.Div()] * num_plots
+    
+    # Handle None values
+    if selected_metrics is None:
+        selected_metrics = [None] * num_plots
+    if selected_resource_kinds is None:
+        selected_resource_kinds = [None] * num_plots
+    if selected_consumer_kinds is None:
+        selected_consumer_kinds = [None] * num_plots
+    
+    # Pad lists to ensure they have exactly num_plots items
+    def pad_list(lst, length):
+        if lst is None:
+            return [None] * length
+        while len(lst) < length:
+            lst.append(None)
+        return lst[:length]
+    
+    selected_metrics = pad_list(selected_metrics, num_plots)
+    selected_resource_kinds = pad_list(selected_resource_kinds, num_plots)
+    selected_consumer_kinds = pad_list(selected_consumer_kinds, num_plots)
     
     df_original = pd.DataFrame(original_df_data)
     
     results = []
-    for idx, (selected_metric, dropdown_id) in enumerate(zip(selected_metrics, dropdown_ids)):
+    for idx, (selected_metric, selected_r_kind, selected_c_kind) in enumerate(zip(
+        selected_metrics, selected_resource_kinds, selected_consumer_kinds
+    )):
+        dropdown_id = metric_dropdown_ids[idx]["index"]
+        
         if not selected_metric or pd.isna(selected_metric):
             results.append(html.Div())
             continue
         
         # Filter dataframe for selected metric
-        metric_df = df_original[df_original["metric"] == selected_metric]
+        metric_df = df_original[df_original["metric"] == selected_metric].copy()
         
         dropdowns = []
         
-        # Resource kind dropdown
+        # Step 1: Resource kind dropdown (if exists)
         resource_kinds = sorted([str(x) for x in metric_df["resource_kind"].dropna().unique() if str(x) != ""])
         if resource_kinds:
             dropdowns.append(
@@ -1524,42 +1315,46 @@ def update_filter_dropdowns(selected_metrics, original_df_data, dropdown_ids):
                         }
                     ),
                     dcc.Dropdown(
-                        id={"type": "resource-kind-dropdown", "index": dropdown_id["index"]},
+                        id={"type": "resource-kind-dropdown", "index": dropdown_id},
                         options=[{"label": rk, "value": rk} for rk in resource_kinds],
+                        value=selected_r_kind if selected_r_kind else None,
                         placeholder="Select resource kind",
                         style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
                         className="dark-dropdown",
-                        clearable=True,
+                        clearable=False,
                     ),
                 ], style={"marginBottom": "10px"})
             )
+            
+            # Step 2: Resource ID dropdown (only show if resource_kind is selected)
+            if selected_r_kind and not pd.isna(selected_r_kind):
+                # Filter by selected resource_kind
+                filtered_for_r_kind = metric_df[metric_df["resource_kind"] == selected_r_kind]
+                resource_ids = sorted([str(x) for x in filtered_for_r_kind["resource_id"].dropna().unique() if str(x) != ""])
+                if resource_ids:
+                    dropdowns.append(
+                        html.Div([
+                            html.Label(
+                                "Resource ID:",
+                                style={
+                                    "color": "#ECEFF4",
+                                    "marginRight": "8px",
+                                    "fontSize": "0.85rem",
+                                    "fontWeight": "500",
+                                }
+                            ),
+                            dcc.Dropdown(
+                                id={"type": "resource-id-dropdown", "index": dropdown_id},
+                                options=[{"label": rid, "value": rid} for rid in resource_ids],
+                                placeholder="Select resource ID",
+                                style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                className="dark-dropdown",
+                                clearable=False,
+                            ),
+                        ], style={"marginBottom": "10px"})
+                    )
         
-        # Resource ID dropdown (only show if resource_kind is selected)
-        resource_ids = sorted([str(x) for x in metric_df["resource_id"].dropna().unique() if str(x) != ""])
-        if resource_ids:
-            dropdowns.append(
-                html.Div([
-                    html.Label(
-                        "Resource ID:",
-                        style={
-                            "color": "#ECEFF4",
-                            "marginRight": "8px",
-                            "fontSize": "0.85rem",
-                            "fontWeight": "500",
-                        }
-                    ),
-                    dcc.Dropdown(
-                        id={"type": "resource-id-dropdown", "index": dropdown_id["index"]},
-                        options=[{"label": rid, "value": rid} for rid in resource_ids],
-                        placeholder="Select resource ID",
-                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                        className="dark-dropdown",
-                        clearable=True,
-                    ),
-                ], style={"marginBottom": "10px"})
-            )
-        
-        # Consumer kind dropdown
+        # Step 3: Consumer kind dropdown (if exists)
         consumer_kinds = sorted([str(x) for x in metric_df["consumer_kind"].dropna().unique() if str(x) != ""])
         if consumer_kinds:
             dropdowns.append(
@@ -1574,44 +1369,74 @@ def update_filter_dropdowns(selected_metrics, original_df_data, dropdown_ids):
                         }
                     ),
                     dcc.Dropdown(
-                        id={"type": "consumer-kind-dropdown", "index": dropdown_id["index"]},
+                        id={"type": "consumer-kind-dropdown", "index": dropdown_id},
                         options=[{"label": ck, "value": ck} for ck in consumer_kinds],
+                        value=selected_c_kind if selected_c_kind else None,
                         placeholder="Select consumer kind",
                         style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
                         className="dark-dropdown",
-                        clearable=True,
+                        clearable=False,
                     ),
                 ], style={"marginBottom": "10px"})
             )
+            
+            # Step 4: Consumer ID dropdown (only show if consumer_kind is selected)
+            if selected_c_kind and not pd.isna(selected_c_kind):
+                # Filter by selected consumer_kind
+                filtered_for_c_kind = metric_df[metric_df["consumer_kind"] == selected_c_kind]
+                consumer_ids = sorted([str(x) for x in filtered_for_c_kind["consumer_id"].dropna().unique() if str(x) != ""])
+                if consumer_ids:
+                    dropdowns.append(
+                        html.Div([
+                            html.Label(
+                                "Consumer ID:",
+                                style={
+                                    "color": "#ECEFF4",
+                                    "marginRight": "8px",
+                                    "fontSize": "0.85rem",
+                                    "fontWeight": "500",
+                                }
+                            ),
+                            dcc.Dropdown(
+                                id={"type": "consumer-id-dropdown", "index": dropdown_id},
+                                options=[{"label": cid, "value": cid} for cid in consumer_ids],
+                                placeholder="Select consumer ID",
+                                style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                className="dark-dropdown",
+                                clearable=False,
+                            ),
+                        ], style={"marginBottom": "10px"})
+                    )
         
-        # Consumer ID dropdown
-        consumer_ids = sorted([str(x) for x in metric_df["consumer_id"].dropna().unique() if str(x) != ""])
-        if consumer_ids:
-            dropdowns.append(
-                html.Div([
-                    html.Label(
-                        "Consumer ID:",
-                        style={
-                            "color": "#ECEFF4",
-                            "marginRight": "8px",
-                            "fontSize": "0.85rem",
-                            "fontWeight": "500",
-                        }
-                    ),
-                    dcc.Dropdown(
-                        id={"type": "consumer-id-dropdown", "index": dropdown_id["index"]},
-                        options=[{"label": cid, "value": cid} for cid in consumer_ids],
-                        placeholder="Select consumer ID",
-                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                        className="dark-dropdown",
-                        clearable=True,
-                    ),
-                ], style={"marginBottom": "10px"})
-            )
+        # Step 5: Late attributes dropdown (only show after all other selections are made)
+        # Check if we've reached the end of the cascade
+        show_late_attrs = True
+        if resource_kinds and (not selected_r_kind or pd.isna(selected_r_kind)):
+            show_late_attrs = False
+        elif resource_kinds and selected_r_kind:
+            # Check if resource_id is required
+            filtered_for_r_kind = metric_df[metric_df["resource_kind"] == selected_r_kind]
+            resource_ids = sorted([str(x) for x in filtered_for_r_kind["resource_id"].dropna().unique() if str(x) != ""])
+            if resource_ids:
+                # Need to check if resource_id is selected - but we don't have that state here
+                # So we'll show late_attrs only if we're past resource_id stage
+                # Actually, we'll show it conditionally in the plot callback instead
+                pass
         
-        # Late attributes dropdown
+        if consumer_kinds and (not selected_c_kind or pd.isna(selected_c_kind)):
+            show_late_attrs = False
+        elif consumer_kinds and selected_c_kind:
+            # Check if consumer_id is required
+            filtered_for_c_kind = metric_df[metric_df["consumer_kind"] == selected_c_kind]
+            consumer_ids = sorted([str(x) for x in filtered_for_c_kind["consumer_id"].dropna().unique() if str(x) != ""])
+            if consumer_ids:
+                # Similar issue - we'll handle this in plot callback
+                pass
+        
+        # For now, show late_attrs if they exist and we have at least resource_kind or consumer_kind selected
+        # The actual filtering will be done in the plot callback
         late_attrs = sorted([str(x) for x in metric_df["__late_attributes"].dropna().unique() if str(x) != ""])
-        if late_attrs:
+        if late_attrs and show_late_attrs:
             dropdowns.append(
                 html.Div([
                     html.Label(
@@ -1624,9 +1449,9 @@ def update_filter_dropdowns(selected_metrics, original_df_data, dropdown_ids):
                         }
                     ),
                     dcc.Dropdown(
-                        id={"type": "late-attr-dropdown", "index": dropdown_id["index"]},
+                        id={"type": "late-attr-dropdown", "index": dropdown_id},
                         options=[{"label": la, "value": la} for la in late_attrs],
-                        placeholder="Select late attributes",
+                        placeholder="Select late attributes (optional)",
                         style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
                         className="dark-dropdown",
                         clearable=True,
@@ -1636,11 +1461,40 @@ def update_filter_dropdowns(selected_metrics, original_df_data, dropdown_ids):
         
         results.append(html.Div(dropdowns))
     
-    # Ensure we always return exactly 16 items
+    # Ensure we always return exactly num_plots items
     while len(results) < num_plots:
         results.append(html.Div())
     
     return results[:num_plots]
+
+# Callbacks to reset child dropdowns when parent selections change
+@app.callback(
+    Output({"type": "resource-id-dropdown", "index": ALL}, "value"),
+    Input({"type": "resource-kind-dropdown", "index": ALL}, "value"),
+    prevent_initial_call=True,
+)
+def reset_resource_id_on_kind_change(selected_resource_kinds):
+    # When resource_kind changes, reset all resource_id dropdowns to None
+    # This ensures cascading works correctly - child resets when parent changes
+    num_plots = 4
+    if selected_resource_kinds is None:
+        return [None] * num_plots
+    # Always reset to None when parent changes
+    return [None] * num_plots
+
+@app.callback(
+    Output({"type": "consumer-id-dropdown", "index": ALL}, "value"),
+    Input({"type": "consumer-kind-dropdown", "index": ALL}, "value"),
+    prevent_initial_call=True,
+)
+def reset_consumer_id_on_kind_change(selected_consumer_kinds):
+    # When consumer_kind changes, reset all consumer_id dropdowns to None
+    # This ensures cascading works correctly - child resets when parent changes
+    num_plots = 4
+    if selected_consumer_kinds is None:
+        return [None] * num_plots
+    # Always reset to None when parent changes
+    return [None] * num_plots
 
 # Callback to update grid plots
 @app.callback(

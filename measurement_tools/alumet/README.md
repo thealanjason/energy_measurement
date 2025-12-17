@@ -2,7 +2,7 @@
 
 Alumet (https://alumet.dev/) is a tool that allows measurement of data from various sources, transform them if necessary, and output them to various endpoints. 
 
-## Installating Alumet
+## Installation
 
 Here I proceed with installing Alumet from source. For this I needed to perform the following:
 
@@ -91,7 +91,7 @@ alumet-agent --config=alumet-config-rapl+perf.toml exec python3 ../../../case_st
 Output: `alumet-output-rapl+perf.csv`
 Logfile: `alumet-agent-rapl+perf.log`
 
-## Process Specific Energy Measurement with Alumet
+## Process-specific Energy Measurement with Alumet
 
 ### Concept
 
@@ -185,3 +185,15 @@ cpu_usage = { metric = "cpu_percent", kind = "total" }
 ### 6. csv
 
 No details in the documentation. So configuration capabilities will need to be found from source code.
+
+
+
+## Visualization Dashboard
+To better visualize the measurement results, a thorough EDA is visualized through a visualization dashboard. 
+
+Run
+```bash
+cd measurement_tools/alumet/viz
+conda env create -f environment.yml # If using micromamba/mamba, replace conda with micromamba/mamba
+python dashboard.py
+```

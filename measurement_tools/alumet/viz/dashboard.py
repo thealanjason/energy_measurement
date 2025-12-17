@@ -878,9 +878,9 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
         # First tab: All time series as scrollable subplots with filtering
         if not processed_df_data:
             return dbc.Alert(
-                "*No data available. Please load data using the Visualize button.*",
+                "No data available. Please load data using the Visualize button.",
                 color="info",
-                style={"margin": "0"},
+                style={"margin": "0", "fontWeight": "bold"},
             )
         
         # Convert stored data back to dataframe
@@ -1002,9 +1002,9 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
     else:  # Second tab: Comparative visualization (2x2 grid)
         if not original_df_data:
             return dbc.Alert(
-                "*No data available. Please load data using the Visualize button.*",
+                "No data available. Please load data using the Visualize button.",
                 color="info",
-                style={"margin": "0"},
+                style={"margin": "0", "fontWeight": "bold"},
             )
         
         # Convert stored data back to dataframe
@@ -1285,7 +1285,7 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     State("original-df-store", "data"),
     prevent_initial_call=True,
 )
-def update_filters_one(metric, rk, rid, ck, cid, la, original_df_data):
+def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
     """Update filter dropdowns for a single plot using MATCH"""
     hide = {"display": "none", "marginBottom": "10px"}
     show = {"display": "block", "marginBottom": "10px"}
@@ -1395,7 +1395,7 @@ def update_filters_one(metric, rk, rid, ck, cid, la, original_df_data):
     State("process-time-range-store", "data"),
     State({"type": "metric-dropdown", "index": MATCH}, "id"),
 )
-def update_grid_plot_one(metric, rk, rid, ck, cid, la, original_df_data, process_time_range, my_id):
+def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, process_time_range, my_id):
     """Update a single grid plot figure using MATCH"""
     fig = go.Figure()
     fig.update_layout(
@@ -1521,7 +1521,7 @@ def update_grid_plot_one(metric, rk, rid, ck, cid, la, original_df_data, process
 
     fig.update_layout(
         height=350,
-        title=dict(text=metric, x=0.5, font=dict(size=14)),
+        title=dict(text=metric.replace("_", " "), x=0.5, font=dict(size=14)),
         hovermode="x unified",
         margin=dict(l=50, r=30, t=50, b=40),
         xaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)"),
@@ -1547,10 +1547,10 @@ def update_grid_plot_one(metric, rk, rid, ck, cid, la, original_df_data, process
 )
 def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert("*No data available.*", color="info", style={"margin": "0"})
+        return dbc.Alert("No data available.", color="info", style={"margin": "0", "fontWeight": "bold"})
     
     if not selected_category:
-        return dbc.Alert("*Please select a metric category.*", color="info", style={"margin": "0"})
+        return dbc.Alert("Please select a metric category.", color="info", style={"margin": "0", "fontWeight": "bold"})
     
     # Convert stored data back to dataframe
     df_processed = pd.DataFrame(processed_df_data)
@@ -1578,7 +1578,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
     elif selected_category == "kernel_cpu_time":
         # Require CPU core selection for kernel_cpu_time (too many cores to show all)
         if not selected_cpu_core:
-            return dbc.Alert("*Please select a CPU core to display kernel CPU time metrics.*", color="warning", style={"margin": "0"})
+            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", style={"margin": "0", "fontWeight": "bold"})
         
         # Filter for kernel_cpu_time_ms
         df_filtered = df_processed[df_processed["base_metric"] == "kernel_cpu_time_ms"]
@@ -1613,7 +1613,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
         df_filtered = pd.DataFrame()
     
     if df_filtered.empty:
-        return dbc.Alert("*No data available for the selected category.*", color="info", style={"margin": "0"})
+        return dbc.Alert("No data available for the selected category.", color="info", style={"margin": "0", "fontWeight": "bold"})
     
     # Get process time range for gray highlight
     proc_start = None

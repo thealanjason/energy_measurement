@@ -247,6 +247,27 @@ def _format_metric_title(metric_id: str) -> str:
         return metric_id.replace("_", " ")
 
 # ================================================
+# Helper functions for MATCH callbacks
+# ================================================
+def norm(x):
+    """Normalize a value to a clean string or None"""
+    if x is None:
+        return None
+    s = str(x).strip()
+    if s == "" or s.lower() == "nan":
+        return None
+    return s
+
+def uniq_str(series: pd.Series) -> list:
+    """Get unique non-empty string values from a series"""
+    vals = []
+    for v in series.fillna("").astype(str).map(str.strip):
+        if v and v.lower() != "nan":
+            vals.append(v)
+    return sorted(set(vals))
+
+
+# ================================================
 # Plotting helper functions
 # ================================================
 def get_color_palette(n_colors: int) -> List[str]:
@@ -296,7 +317,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     if n_metrics == 0:
         return go.Figure()
     
-    # Get full time range for x-axis (use provided range or calculate from data)
+    # Get full time range for x-axis (calculate from data if provided range is not provided)
     if full_time_range:
         x_min, x_max = full_time_range
     else:
@@ -308,8 +329,8 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
     
     # Vertical spacing between subplots
-    max_spacing = 1.0 / (n_metrics - 1) if n_metrics > 1 else 0.05
-    vertical_spacing = min(0.05, max_spacing * 0.8)  
+    # Fixed spacing ensures consistent appearance regardless of number of metrics
+    vertical_spacing = 0.03 if n_metrics > 1 else 0.05  
     
     # Create subplots with formatted titles
     formatted_titles = [_format_metric_title(metric_id) for metric_id in unique_metrics]
@@ -320,21 +341,33 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         subplot_titles=[f"<b>{title}</b>" for title in formatted_titles],
     )
 
-    # Pre-calculate y-axis ranges for each metric (needed for process active zone)
+    # Pre-calculate y-axis ranges for each metric (needed for process active zone visualization)
     y_ranges = {}
     for metric_id in unique_metrics:
         metric_data = df_processed[df_processed["metric_id"] == metric_id]
+        if metric_data.empty:
+            y_ranges[metric_id] = {"min": -1, "max": 1}
+            continue
+            
         y_min = metric_data["value"].min()
         y_max = metric_data["value"].max()
         y_range = y_max - y_min if y_max != y_min else abs(y_max) if y_max != 0 else 1
         y_padding = 0.1 * y_range if y_range > 0 else 0.1
+        
+        # Ensure valid range (min < max)
+        calculated_min = y_min - y_padding
+        calculated_max = y_max + y_padding
+        if calculated_min >= calculated_max:
+            # Ensure at least a small range
+            calculated_min = y_min - 0.1 if y_min != 0 else -0.1
+            calculated_max = y_max + 0.1 if y_max != 0 else 0.1
+        
         y_ranges[metric_id] = {
-            "min": y_min - y_padding,
-            "max": y_max + y_padding
+            "min": calculated_min,
+            "max": calculated_max
         }
 
-    # Add gray highlighted zone for process active period FIRST (so it appears behind data)
-    # This will show in the legend and provide the visual highlighting
+    # Gray highlighted zone for process active period first
     if proc_start and proc_end:
         for idx in range(1, n_metrics + 1):
             metric_id = unique_metrics[idx-1]
@@ -358,7 +391,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
                 row=idx, col=1
             )
 
-    # Add traces for each metric (on top of process active zone)
+    # Add traces for each metric
     for idx, metric_id in enumerate(unique_metrics, start=1):
         metric_data = df_processed[df_processed["metric_id"] == metric_id].sort_values("timestamp")
         color = color_map[metric_id]
@@ -399,13 +432,18 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
             gridcolor="rgba(76, 86, 106, 0.2)",
             row=idx, col=1
         )
-        fig.update_yaxes(title_text="Value", row=idx, col=1, gridcolor="rgba(76, 86, 106, 0.2)")
+        # Explicitly set y-axis range to ensure process active region displays correctly
+        y_range = y_ranges[metric_id]
+        fig.update_yaxes(
+            title_text="Value",
+            range=[y_range["min"], y_range["max"]],
+            gridcolor="rgba(76, 86, 106, 0.2)",
+            row=idx, col=1
+        )
     
     # Update layout
     fig.update_xaxes(title_text="Time", row=n_metrics, col=1)
-    
-    # Calculate height: use a fixed height per subplot, but allow it to grow
-    # Each subplot gets 250px for better visibility
+
     subplot_height = 250
     total_height = subplot_height * n_metrics
     

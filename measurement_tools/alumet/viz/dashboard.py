@@ -1,8 +1,9 @@
+from typing import Any
 import pandas as pd
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 from pathlib import Path
-from dash import Dash, html, dcc, callback, Input, Output, State, ctx, ALL
+from dash import Dash, html, dcc, callback, Input, Output, State, ctx, MATCH
 
 from utils import (
     load_csv_from_contents, 
@@ -14,6 +15,8 @@ from utils import (
     is_gpu_from_content,
     get_color_palette,
     create_all_timeseries_plots,
+    norm,
+    uniq_str,
 )
 
 # Get base directory
@@ -996,7 +999,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
             style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
         )
     
-    else:  # comparative-tab - 2x2 grid
+    else:  # Second tab: Comparative visualization (2x2 grid)
         if not original_df_data:
             return dbc.Alert(
                 "*No data available. Please load data using the Visualize button.*",
@@ -1046,8 +1049,134 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                                                         clearable=True,
                                                     ),
                                                     html.Div(
-                                                        id={"type": "filter-dropdowns", "index": f"{i}-{j}"},
-                                                        style={"marginTop": "15px"}
+                                                        [
+                                                            # Resource Kind
+                                                            html.Div(
+                                                                [
+                                                                    html.Label(
+                                                                        "Resource Kind:",
+                                                                        style={
+                                                                            "color": "#ECEFF4",
+                                                                            "marginRight": "8px",
+                                                                            "fontSize": "0.85rem",
+                                                                            "fontWeight": "500",
+                                                                        }
+                                                                    ),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "resource-kind-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="Select resource kind",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                                        className="dark-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "rk-container", "index": f"{i}-{j}"},
+                                                                style={"display": "none", "marginBottom": "10px"},
+                                                            ),
+                                                            # Resource ID
+                                                            html.Div(
+                                                                [
+                                                                    html.Label(
+                                                                        "Resource ID:",
+                                                                        style={
+                                                                            "color": "#ECEFF4",
+                                                                            "marginRight": "8px",
+                                                                            "fontSize": "0.85rem",
+                                                                            "fontWeight": "500",
+                                                                        }
+                                                                    ),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "resource-id-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="Select resource ID",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                                        className="dark-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "rid-container", "index": f"{i}-{j}"},
+                                                                style={"display": "none", "marginBottom": "10px"},
+                                                            ),
+                                                            # Consumer Kind
+                                                            html.Div(
+                                                                [
+                                                                    html.Label(
+                                                                        "Consumer Kind:",
+                                                                        style={
+                                                                            "color": "#ECEFF4",
+                                                                            "marginRight": "8px",
+                                                                            "fontSize": "0.85rem",
+                                                                            "fontWeight": "500",
+                                                                        }
+                                                                    ),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "consumer-kind-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="Select consumer kind",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                                        className="dark-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "ck-container", "index": f"{i}-{j}"},
+                                                                style={"display": "none", "marginBottom": "10px"},
+                                                            ),
+                                                            # Consumer ID
+                                                            html.Div(
+                                                                [
+                                                                    html.Label(
+                                                                        "Consumer ID:",
+                                                                        style={
+                                                                            "color": "#ECEFF4",
+                                                                            "marginRight": "8px",
+                                                                            "fontSize": "0.85rem",
+                                                                            "fontWeight": "500",
+                                                                        }
+                                                                    ),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "consumer-id-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="Select consumer ID",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                                        className="dark-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "cid-container", "index": f"{i}-{j}"},
+                                                                style={"display": "none", "marginBottom": "10px"},
+                                                            ),
+                                                            # Late Attributes
+                                                            html.Div(
+                                                                [
+                                                                    html.Label(
+                                                                        "Late Attributes:",
+                                                                        style={
+                                                                            "color": "#ECEFF4",
+                                                                            "marginRight": "8px",
+                                                                            "fontSize": "0.85rem",
+                                                                            "fontWeight": "500",
+                                                                        }
+                                                                    ),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "late-attr-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="Select late attributes",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                                        className="dark-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "la-container", "index": f"{i}-{j}"},
+                                                                style={"display": "none", "marginBottom": "10px"},
+                                                            ),
+                                                        ],
+                                                        style={"marginTop": "15px"},
                                                     ),
                                                 ],
                                                 style={"marginBottom": "15px"}
@@ -1129,6 +1258,283 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     visible_style = {"backgroundColor": "#434C5E", "color": "#ECEFF4"}
     
     return selector_children, options, visible_style
+
+# MATCH callback to update filter dropdown options and show/hide containers
+@app.callback(
+    Output({"type": "rk-container", "index": MATCH}, "style"),
+    Output({"type": "resource-kind-dropdown", "index": MATCH}, "options"),
+    Output({"type": "resource-kind-dropdown", "index": MATCH}, "value"),
+    Output({"type": "rid-container", "index": MATCH}, "style"),
+    Output({"type": "resource-id-dropdown", "index": MATCH}, "options"),
+    Output({"type": "resource-id-dropdown", "index": MATCH}, "value"),
+    Output({"type": "ck-container", "index": MATCH}, "style"),
+    Output({"type": "consumer-kind-dropdown", "index": MATCH}, "options"),
+    Output({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
+    Output({"type": "cid-container", "index": MATCH}, "style"),
+    Output({"type": "consumer-id-dropdown", "index": MATCH}, "options"),
+    Output({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
+    Output({"type": "la-container", "index": MATCH}, "style"),
+    Output({"type": "late-attr-dropdown", "index": MATCH}, "options"),
+    Output({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    Input({"type": "metric-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    State("original-df-store", "data"),
+    prevent_initial_call=True,
+)
+def update_filters_one(metric, rk, rid, ck, cid, la, original_df_data):
+    """Update filter dropdowns for a single plot using MATCH"""
+    hide = {"display": "none", "marginBottom": "10px"}
+    show = {"display": "block", "marginBottom": "10px"}
+
+    if not original_df_data or not metric:
+        return (hide, [], None, hide, [], None, hide, [], None, hide, [], None, hide, [], None)
+
+    df = pd.DataFrame(original_df_data)
+    dfm = df[df["metric"] == metric].copy()
+
+    # Normalize to strings for stable matching
+    dfm["rk"] = dfm["resource_kind"].fillna("").astype(str).str.strip()
+    dfm["rid"] = dfm["resource_id"].fillna("").astype(str).str.strip()
+    dfm["ck"] = dfm["consumer_kind"].fillna("").astype(str).str.strip()
+    dfm["cid"] = dfm["consumer_id"].fillna("").astype(str).str.strip()
+    dfm["la"] = dfm["__late_attributes"].fillna("").astype(str).str.strip()
+
+    rk = norm(rk)
+    rid = norm(rid)
+    ck = norm(ck)
+    cid = norm(cid)
+    la = norm(la)
+
+    # Check which input triggered the callback to reset children appropriately
+    triggered_id = None
+    if ctx.triggered:
+        triggered = ctx.triggered[0]
+        triggered_prop_id = triggered.get("prop_id", "")
+        # Extract the component type from prop_id (e.g., "resource-kind-dropdown")
+        if '.value' in triggered_prop_id:
+            try:
+                import json
+                json_str = triggered_prop_id.split('.value')[0]
+                id_dict = json.loads(json_str)
+                triggered_id = id_dict.get("type")
+            except:
+                pass
+
+    # Resource kind options
+    rk_opts = uniq_str(dfm["rk"])
+    rk_eff = rk if rk in rk_opts else (rk_opts[0] if len(rk_opts) == 1 else None)
+    df1 = dfm if rk_eff is None else dfm[dfm["rk"] == rk_eff]
+
+    # Resource id options - reset if resource_kind changed
+    rid_opts = uniq_str(df1["rid"])
+    if triggered_id == "resource-kind-dropdown":
+        # Parent changed - reset child
+        rid_eff = None
+    else:
+        rid_eff = rid if rid in rid_opts else (rid_opts[0] if len(rid_opts) == 1 else None)
+    df2 = df1 if rid_eff is None else df1[df1["rid"] == rid_eff]
+
+    # Consumer kind options
+    ck_opts = uniq_str(df2["ck"])
+    ck_eff = ck if ck in ck_opts else (ck_opts[0] if len(ck_opts) == 1 else None)
+    df3 = df2 if ck_eff is None else df2[df2["ck"] == ck_eff]
+
+    # Consumer id options - reset if consumer_kind changed
+    cid_opts = uniq_str(df3["cid"])
+    if triggered_id == "consumer-kind-dropdown":
+        # Parent changed - reset child
+        cid_eff = None
+    else:
+        cid_eff = cid if cid in cid_opts else (cid_opts[0] if len(cid_opts) == 1 else None)
+    df4 = df3 if cid_eff is None else df3[df3["cid"] == cid_eff]
+
+    # Late attributes options - reset if any parent changed
+    la_opts = uniq_str(df4["la"])
+    if triggered_id in ["resource-kind-dropdown", "resource-id-dropdown", "consumer-kind-dropdown", "consumer-id-dropdown"]:
+        # Parent changed - reset late_attr
+        la_eff = None
+    else:
+        la_eff = la if la in la_opts else None  # Don't auto-select late_attr
+
+    rk_style = show if len(rk_opts) > 1 else hide
+    rid_style = show if len(rid_opts) > 1 else hide
+    ck_style = show if len(ck_opts) > 1 else hide
+    cid_style = show if len(cid_opts) > 1 else hide
+    la_style = show if len(la_opts) > 1 else hide
+
+    rk_options = [{"label": v, "value": v} for v in rk_opts]
+    rid_options = [{"label": v, "value": v} for v in rid_opts]
+    ck_options = [{"label": v, "value": v} for v in ck_opts]
+    cid_options = [{"label": v, "value": v} for v in cid_opts]
+    la_options = [{"label": v, "value": v} for v in la_opts]
+
+    # Return values: use effective values (auto-selected if single option, otherwise use input)
+    # Reset children when parents change
+    return (
+        rk_style, rk_options, rk_eff,
+        rid_style, rid_options, rid_eff,
+        ck_style, ck_options, ck_eff,
+        cid_style, cid_options, cid_eff,
+        la_style, la_options, la_eff
+    )
+
+# MATCH callback to update grid plot figure
+@app.callback(
+    Output({"type": "grid-plot", "index": MATCH}, "figure"),
+    Input({"type": "metric-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    State("original-df-store", "data"),
+    State("process-time-range-store", "data"),
+    State({"type": "metric-dropdown", "index": MATCH}, "id"),
+)
+def update_grid_plot_one(metric, rk, rid, ck, cid, la, original_df_data, process_time_range, my_id):
+    """Update a single grid plot figure using MATCH"""
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor="rgba(46, 52, 64, 0.95)",
+        plot_bgcolor="rgba(59, 66, 82, 0.7)",
+        font=dict(color="#d8dee9"),
+    )
+
+    if not original_df_data or not metric:
+        fig.update_layout(title=dict(text="Select a metric", x=0.5))
+        return fig
+
+    df = pd.DataFrame(original_df_data)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    dfm = df[df["metric"] == metric].copy()
+
+    # Same string normalization as options callback
+    dfm["rk"] = dfm["resource_kind"].fillna("").astype(str).str.strip()
+    dfm["rid"] = dfm["resource_id"].fillna("").astype(str).str.strip()
+    dfm["ck"] = dfm["consumer_kind"].fillna("").astype(str).str.strip()
+    dfm["cid"] = dfm["consumer_id"].fillna("").astype(str).str.strip()
+    dfm["la"] = dfm["__late_attributes"].fillna("").astype(str).str.strip()
+
+    rk = norm(rk)
+    rid = norm(rid)
+    ck = norm(ck)
+    cid = norm(cid)
+    la = norm(la)
+
+    # Progressively filter with "effective" auto-selection for single-option dims
+    rk_opts = uniq_str(dfm["rk"])
+    rk_eff = rk if rk in rk_opts else (rk_opts[0] if len(rk_opts) == 1 else None)
+    df1 = dfm if rk_eff is None else dfm[dfm["rk"] == rk_eff]
+
+    rid_opts = uniq_str(df1["rid"])
+    rid_eff = rid if rid in rid_opts else (rid_opts[0] if len(rid_opts) == 1 else None)
+    df2 = df1 if rid_eff is None else df1[df1["rid"] == rid_eff]
+
+    ck_opts = uniq_str(df2["ck"])
+    ck_eff = ck if ck in ck_opts else (ck_opts[0] if len(ck_opts) == 1 else None)
+    df3 = df2 if ck_eff is None else df2[df2["ck"] == ck_eff]
+
+    cid_opts = uniq_str(df3["cid"])
+    cid_eff = cid if cid in cid_opts else (cid_opts[0] if len(cid_opts) == 1 else None)
+    df4 = df3 if cid_eff is None else df3[df3["cid"] == cid_eff]
+
+    la_opts = uniq_str(df4["la"])
+    la_eff = la if la in la_opts else (la_opts[0] if len(la_opts) == 1 else None)
+    dff = df4 if la_eff is None else df4[df4["la"] == la_eff]
+
+    if dff.empty:
+        fig.update_layout(title=dict(text="No data available", x=0.5))
+        return fig
+
+    # Uniqueness check
+    combos = dff.groupby(["rk", "rid", "ck", "cid", "la"]).size()
+    if len(combos) > 1:
+        missing = []
+        if len(rk_opts) > 1 and rk_eff is None:
+            missing.append("Resource Kind")
+        if len(rid_opts) > 1 and rid_eff is None:
+            missing.append("Resource ID")
+        if len(ck_opts) > 1 and ck_eff is None:
+            missing.append("Consumer Kind")
+        if len(cid_opts) > 1 and cid_eff is None:
+            missing.append("Consumer ID")
+        if len(la_opts) > 1 and la_eff is None:
+            missing.append("Late Attributes")
+
+        fig.update_layout(
+            title=dict(
+                text="Please complete selections: " + (", ".join(missing) if missing else "more filters"),
+                x=0.5,
+                font=dict(size=12)
+            )
+        )
+        return fig
+
+    # Process active shading
+    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range and process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range and process_time_range.get("end") else None
+
+    dff = dff.sort_values("timestamp")
+    y_min, y_max = dff["value"].min(), dff["value"].max()
+    y_range = (y_max - y_min) if y_max != y_min else (abs(y_max) if y_max != 0 else 1)
+    y_pad = 0.1 * y_range
+    y_bottom, y_top = y_min - y_pad, y_max + y_pad
+
+    if proc_start and proc_end:
+        fig.add_trace(go.Scatter(
+            x=[proc_start, proc_start, proc_end, proc_end, proc_start],
+            y=[y_bottom, y_top, y_top, y_bottom, y_bottom],
+            mode="lines",
+            fill="toself",
+            fillcolor="rgba(136, 192, 208, 0.12)",
+            line=dict(width=0),
+            name="Process Active",
+            showlegend=True,
+            hoverinfo="skip",
+        ))
+
+    colors = get_color_palette(100)
+    idx_str = my_id.get("index", "0-0")
+    color = colors[abs(hash(idx_str)) % len(colors)]
+
+    # Fill rgba
+    rgba_fill = "rgba(136, 192, 208, 0.15)"
+    if isinstance(color, str) and color.startswith("#"):
+        h = color.lstrip("#")
+        r, g, b = (int(h[i:i+2], 16) for i in (0, 2, 4))
+        rgba_fill = f"rgba({r}, {g}, {b}, 0.15)"
+
+    fig.add_trace(go.Scatter(
+        x=dff["timestamp"],
+        y=dff["value"],
+        mode="lines",
+        name=metric,
+        line=dict(color=color, width=2),
+        fill="tozeroy",
+        fillcolor=rgba_fill,
+        hovertemplate=f"<b>{metric}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        height=350,
+        title=dict(text=metric, x=0.5, font=dict(size=14)),
+        hovermode="x unified",
+        margin=dict(l=50, r=30, t=50, b=40),
+        xaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)"),
+        yaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)", title="Value"),
+        showlegend=True,
+        legend=dict(
+            bgcolor="rgba(46, 52, 64, 0.8)",
+            bordercolor="rgba(136, 192, 208, 0.3)",
+            borderwidth=1,
+            font=dict(color="#d8dee9"),
+        ),
+    )
+    return fig
 
 # Callback to update time series plot based on category and CPU core selection
 @app.callback(
@@ -1244,458 +1650,6 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
             "alignItems": "flex-start",
         },
     )
-
-# Callback for cascading dropdowns in grid plots
-@app.callback(
-    Output({"type": "filter-dropdowns", "index": ALL}, "children"),
-    Input({"type": "metric-dropdown", "index": ALL}, "value"),
-    Input({"type": "resource-kind-dropdown", "index": ALL}, "value"),
-    Input({"type": "consumer-kind-dropdown", "index": ALL}, "value"),
-    State("original-df-store", "data"),
-    State({"type": "metric-dropdown", "index": ALL}, "id"),
-    State({"type": "resource-kind-dropdown", "index": ALL}, "id"),
-    State({"type": "consumer-kind-dropdown", "index": ALL}, "id"),
-)
-def update_filter_dropdowns(selected_metrics, selected_resource_kinds, selected_consumer_kinds,
-                           original_df_data, metric_dropdown_ids, resource_kind_dropdown_ids, consumer_kind_dropdown_ids):
-    # Always return 4 items (2x2 grid)
-    num_plots = 4
-    if not original_df_data or not metric_dropdown_ids or len(metric_dropdown_ids) != num_plots:
-        return [html.Div()] * num_plots
-    
-    # Handle None values
-    if selected_metrics is None:
-        selected_metrics = [None] * num_plots
-    if selected_resource_kinds is None:
-        selected_resource_kinds = [None] * num_plots
-    if selected_consumer_kinds is None:
-        selected_consumer_kinds = [None] * num_plots
-    
-    # Pad lists to ensure they have exactly num_plots items
-    def pad_list(lst, length):
-        if lst is None:
-            return [None] * length
-        while len(lst) < length:
-            lst.append(None)
-        return lst[:length]
-    
-    selected_metrics = pad_list(selected_metrics, num_plots)
-    selected_resource_kinds = pad_list(selected_resource_kinds, num_plots)
-    selected_consumer_kinds = pad_list(selected_consumer_kinds, num_plots)
-    
-    df_original = pd.DataFrame(original_df_data)
-    
-    results = []
-    for idx, (selected_metric, selected_r_kind, selected_c_kind) in enumerate(zip(
-        selected_metrics, selected_resource_kinds, selected_consumer_kinds
-    )):
-        dropdown_id = metric_dropdown_ids[idx]["index"]
-        
-        if not selected_metric or pd.isna(selected_metric):
-            results.append(html.Div())
-            continue
-        
-        # Filter dataframe for selected metric
-        metric_df = df_original[df_original["metric"] == selected_metric].copy()
-        
-        dropdowns = []
-        
-        # Step 1: Resource kind dropdown (if exists)
-        resource_kinds = sorted([str(x) for x in metric_df["resource_kind"].dropna().unique() if str(x) != ""])
-        if resource_kinds:
-            dropdowns.append(
-                html.Div([
-                    html.Label(
-                        "Resource Kind:",
-                        style={
-                            "color": "#ECEFF4",
-                            "marginRight": "8px",
-                            "fontSize": "0.85rem",
-                            "fontWeight": "500",
-                        }
-                    ),
-                    dcc.Dropdown(
-                        id={"type": "resource-kind-dropdown", "index": dropdown_id},
-                        options=[{"label": rk, "value": rk} for rk in resource_kinds],
-                        value=selected_r_kind if selected_r_kind else None,
-                        placeholder="Select resource kind",
-                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                        className="dark-dropdown",
-                        clearable=False,
-                    ),
-                ], style={"marginBottom": "10px"})
-            )
-            
-            # Step 2: Resource ID dropdown (only show if resource_kind is selected)
-            if selected_r_kind and not pd.isna(selected_r_kind):
-                # Filter by selected resource_kind
-                filtered_for_r_kind = metric_df[metric_df["resource_kind"] == selected_r_kind]
-                resource_ids = sorted([str(x) for x in filtered_for_r_kind["resource_id"].dropna().unique() if str(x) != ""])
-                if resource_ids:
-                    dropdowns.append(
-                        html.Div([
-                            html.Label(
-                                "Resource ID:",
-                                style={
-                                    "color": "#ECEFF4",
-                                    "marginRight": "8px",
-                                    "fontSize": "0.85rem",
-                                    "fontWeight": "500",
-                                }
-                            ),
-                            dcc.Dropdown(
-                                id={"type": "resource-id-dropdown", "index": dropdown_id},
-                                options=[{"label": rid, "value": rid} for rid in resource_ids],
-                                placeholder="Select resource ID",
-                                style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                className="dark-dropdown",
-                                clearable=False,
-                            ),
-                        ], style={"marginBottom": "10px"})
-                    )
-        
-        # Step 3: Consumer kind dropdown (if exists)
-        consumer_kinds = sorted([str(x) for x in metric_df["consumer_kind"].dropna().unique() if str(x) != ""])
-        if consumer_kinds:
-            dropdowns.append(
-                html.Div([
-                    html.Label(
-                        "Consumer Kind:",
-                        style={
-                            "color": "#ECEFF4",
-                            "marginRight": "8px",
-                            "fontSize": "0.85rem",
-                            "fontWeight": "500",
-                        }
-                    ),
-                    dcc.Dropdown(
-                        id={"type": "consumer-kind-dropdown", "index": dropdown_id},
-                        options=[{"label": ck, "value": ck} for ck in consumer_kinds],
-                        value=selected_c_kind if selected_c_kind else None,
-                        placeholder="Select consumer kind",
-                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                        className="dark-dropdown",
-                        clearable=False,
-                    ),
-                ], style={"marginBottom": "10px"})
-            )
-            
-            # Step 4: Consumer ID dropdown (only show if consumer_kind is selected)
-            if selected_c_kind and not pd.isna(selected_c_kind):
-                # Filter by selected consumer_kind
-                filtered_for_c_kind = metric_df[metric_df["consumer_kind"] == selected_c_kind]
-                consumer_ids = sorted([str(x) for x in filtered_for_c_kind["consumer_id"].dropna().unique() if str(x) != ""])
-                if consumer_ids:
-                    dropdowns.append(
-                        html.Div([
-                            html.Label(
-                                "Consumer ID:",
-                                style={
-                                    "color": "#ECEFF4",
-                                    "marginRight": "8px",
-                                    "fontSize": "0.85rem",
-                                    "fontWeight": "500",
-                                }
-                            ),
-                            dcc.Dropdown(
-                                id={"type": "consumer-id-dropdown", "index": dropdown_id},
-                                options=[{"label": cid, "value": cid} for cid in consumer_ids],
-                                placeholder="Select consumer ID",
-                                style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                className="dark-dropdown",
-                                clearable=False,
-                            ),
-                        ], style={"marginBottom": "10px"})
-                    )
-        
-        # Step 5: Late attributes dropdown (only show after all other selections are made)
-        # Check if we've reached the end of the cascade
-        show_late_attrs = True
-        if resource_kinds and (not selected_r_kind or pd.isna(selected_r_kind)):
-            show_late_attrs = False
-        elif resource_kinds and selected_r_kind:
-            # Check if resource_id is required
-            filtered_for_r_kind = metric_df[metric_df["resource_kind"] == selected_r_kind]
-            resource_ids = sorted([str(x) for x in filtered_for_r_kind["resource_id"].dropna().unique() if str(x) != ""])
-            if resource_ids:
-                # Need to check if resource_id is selected - but we don't have that state here
-                # So we'll show late_attrs only if we're past resource_id stage
-                # Actually, we'll show it conditionally in the plot callback instead
-                pass
-        
-        if consumer_kinds and (not selected_c_kind or pd.isna(selected_c_kind)):
-            show_late_attrs = False
-        elif consumer_kinds and selected_c_kind:
-            # Check if consumer_id is required
-            filtered_for_c_kind = metric_df[metric_df["consumer_kind"] == selected_c_kind]
-            consumer_ids = sorted([str(x) for x in filtered_for_c_kind["consumer_id"].dropna().unique() if str(x) != ""])
-            if consumer_ids:
-                # Similar issue - we'll handle this in plot callback
-                pass
-        
-        # For now, show late_attrs if they exist and we have at least resource_kind or consumer_kind selected
-        # The actual filtering will be done in the plot callback
-        late_attrs = sorted([str(x) for x in metric_df["__late_attributes"].dropna().unique() if str(x) != ""])
-        if late_attrs and show_late_attrs:
-            dropdowns.append(
-                html.Div([
-                    html.Label(
-                        "Late Attributes:",
-                        style={
-                            "color": "#ECEFF4",
-                            "marginRight": "8px",
-                            "fontSize": "0.85rem",
-                            "fontWeight": "500",
-                        }
-                    ),
-                    dcc.Dropdown(
-                        id={"type": "late-attr-dropdown", "index": dropdown_id},
-                        options=[{"label": la, "value": la} for la in late_attrs],
-                        placeholder="Select late attributes (optional)",
-                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                        className="dark-dropdown",
-                        clearable=True,
-                    ),
-                ], style={"marginBottom": "10px"})
-            )
-        
-        results.append(html.Div(dropdowns))
-    
-    # Ensure we always return exactly num_plots items
-    while len(results) < num_plots:
-        results.append(html.Div())
-    
-    return results[:num_plots]
-
-# Callbacks to reset child dropdowns when parent selections change
-@app.callback(
-    Output({"type": "resource-id-dropdown", "index": ALL}, "value"),
-    Input({"type": "resource-kind-dropdown", "index": ALL}, "value"),
-    prevent_initial_call=True,
-)
-def reset_resource_id_on_kind_change(selected_resource_kinds):
-    # When resource_kind changes, reset all resource_id dropdowns to None
-    # This ensures cascading works correctly - child resets when parent changes
-    num_plots = 4
-    if selected_resource_kinds is None:
-        return [None] * num_plots
-    # Always reset to None when parent changes
-    return [None] * num_plots
-
-@app.callback(
-    Output({"type": "consumer-id-dropdown", "index": ALL}, "value"),
-    Input({"type": "consumer-kind-dropdown", "index": ALL}, "value"),
-    prevent_initial_call=True,
-)
-def reset_consumer_id_on_kind_change(selected_consumer_kinds):
-    # When consumer_kind changes, reset all consumer_id dropdowns to None
-    # This ensures cascading works correctly - child resets when parent changes
-    num_plots = 4
-    if selected_consumer_kinds is None:
-        return [None] * num_plots
-    # Always reset to None when parent changes
-    return [None] * num_plots
-
-# Callback to update grid plots
-@app.callback(
-    Output({"type": "grid-plot", "index": ALL}, "figure"),
-    Input({"type": "metric-dropdown", "index": ALL}, "value"),
-    Input({"type": "resource-kind-dropdown", "index": ALL}, "value"),
-    Input({"type": "resource-id-dropdown", "index": ALL}, "value"),
-    Input({"type": "consumer-kind-dropdown", "index": ALL}, "value"),
-    Input({"type": "consumer-id-dropdown", "index": ALL}, "value"),
-    Input({"type": "late-attr-dropdown", "index": ALL}, "value"),
-    State("original-df-store", "data"),
-    State("process-time-range-store", "data"),
-    State({"type": "metric-dropdown", "index": ALL}, "id"),
-)
-def update_grid_plots(selected_metrics, selected_resource_kinds, selected_resource_ids,
-                     selected_consumer_kinds, selected_consumer_ids, selected_late_attrs,
-                     original_df_data, process_time_range, dropdown_ids):
-    # Always return 4 items (2x2 grid)
-    num_plots = 4
-    
-    # Handle None values - convert to empty lists if needed
-    if selected_metrics is None:
-        selected_metrics = [None] * num_plots
-    if selected_resource_kinds is None:
-        selected_resource_kinds = [None] * num_plots
-    if selected_resource_ids is None:
-        selected_resource_ids = [None] * num_plots
-    if selected_consumer_kinds is None:
-        selected_consumer_kinds = [None] * num_plots
-    if selected_consumer_ids is None:
-        selected_consumer_ids = [None] * num_plots
-    if selected_late_attrs is None:
-        selected_late_attrs = [None] * num_plots
-    
-    # Ensure all lists have exactly 16 items
-    def pad_list(lst, length):
-        if lst is None:
-            return [None] * length
-        while len(lst) < length:
-            lst.append(None)
-        return lst[:length]
-    
-    selected_metrics = pad_list(selected_metrics, num_plots)
-    selected_resource_kinds = pad_list(selected_resource_kinds, num_plots)
-    selected_resource_ids = pad_list(selected_resource_ids, num_plots)
-    selected_consumer_kinds = pad_list(selected_consumer_kinds, num_plots)
-    selected_consumer_ids = pad_list(selected_consumer_ids, num_plots)
-    selected_late_attrs = pad_list(selected_late_attrs, num_plots)
-    
-    if not original_df_data:
-        return [go.Figure()] * num_plots
-    
-    df_original = pd.DataFrame(original_df_data)
-    df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
-    
-    # Get process time range
-    proc_start = None
-    proc_end = None
-    if process_time_range and process_time_range.get("start"):
-        proc_start = pd.to_datetime(process_time_range["start"])
-    if process_time_range and process_time_range.get("end"):
-        proc_end = pd.to_datetime(process_time_range["end"])
-    
-    figures = []
-    colors = get_color_palette(100)  # Get enough colors
-    
-    for idx, (metric, r_kind, r_id, c_kind, c_id, late_attr) in enumerate(zip(
-        selected_metrics, selected_resource_kinds, selected_resource_ids,
-        selected_consumer_kinds, selected_consumer_ids, selected_late_attrs
-    )):
-        fig = go.Figure()
-        
-        if not metric:
-            fig.update_layout(
-                paper_bgcolor="rgba(46, 52, 64, 0.95)",
-                plot_bgcolor="rgba(59, 66, 82, 0.7)",
-                font=dict(color="#d8dee9"),
-                title=dict(text="Select a metric", x=0.5),
-            )
-            figures.append(fig)
-            continue
-        
-        # Filter dataframe based on selections
-        filtered_df = df_original[df_original["metric"] == metric].copy()
-        
-        if r_kind and not pd.isna(r_kind):
-            filtered_df = filtered_df[filtered_df["resource_kind"] == r_kind]
-        if r_id and not pd.isna(r_id):
-            filtered_df = filtered_df[filtered_df["resource_id"] == r_id]
-        if c_kind and not pd.isna(c_kind):
-            filtered_df = filtered_df[filtered_df["consumer_kind"] == c_kind]
-        if c_id and not pd.isna(c_id):
-            filtered_df = filtered_df[filtered_df["consumer_id"] == c_id]
-        if late_attr and not pd.isna(late_attr):
-            filtered_df = filtered_df[filtered_df["__late_attributes"] == late_attr]
-        
-        if filtered_df.empty:
-            fig.update_layout(
-                paper_bgcolor="rgba(46, 52, 64, 0.95)",
-                plot_bgcolor="rgba(59, 66, 82, 0.7)",
-                font=dict(color="#d8dee9"),
-                title=dict(text="No data available", x=0.5),
-            )
-            figures.append(fig)
-            continue
-        
-        # Sort by timestamp
-        filtered_df = filtered_df.sort_values("timestamp")
-        
-        # Calculate y-axis range for process active zone
-        y_min = filtered_df["value"].min()
-        y_max = filtered_df["value"].max()
-        y_range = y_max - y_min if y_max != y_min else abs(y_max) if y_max != 0 else 1
-        y_padding = 0.1 * y_range if y_range > 0 else 0.1
-        y_bottom = y_min - y_padding
-        y_top = y_max + y_padding
-        
-        # Add gray highlighted zone as a trace (so it appears in legend)
-        if proc_start and proc_end:
-            fig.add_trace(
-                go.Scatter(
-                    x=[proc_start, proc_start, proc_end, proc_end, proc_start],
-                    y=[y_bottom, y_top, y_top, y_bottom, y_bottom],
-                    mode="lines",
-                    fill="toself",
-                    fillcolor="rgba(136, 192, 208, 0.12)",
-                    line=dict(width=0),
-                    name="Process Active",
-                    showlegend=True,
-                    legendgroup="process_active",
-                    hoverinfo="text",
-                    hovertext=f"Process Active Period<br>{proc_start.strftime('%H:%M:%S.%L')} - {proc_end.strftime('%H:%M:%S.%L')}",
-                )
-            )
-        
-        # Get color
-        color = colors[idx % len(colors)]
-        
-        # Convert color to rgba for fill
-        if color.startswith('#'):
-            hex_color = color.lstrip('#')
-            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-            rgba_fill = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.15)"
-        elif color.startswith('rgba'):
-            # Already rgba, just adjust opacity
-            rgba_fill = color.rsplit(',', 1)[0] + ', 0.15)'
-        elif color.startswith('rgb'):
-            # Convert rgb to rgba
-            rgba_fill = color.replace('rgb', 'rgba').replace(')', ', 0.15)')
-        else:
-            # Default fallback
-            rgba_fill = "rgba(136, 192, 208, 0.15)"
-        
-        # Add trace
-        fig.add_trace(
-            go.Scatter(
-                x=filtered_df["timestamp"],
-                y=filtered_df["value"],
-                mode="lines",
-                name=metric,
-                line=dict(color=color, width=2),
-                fill="tozeroy",
-                fillcolor=rgba_fill,
-                hovertemplate=f"<b>{metric}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
-            )
-        )
-        
-        # Update layout
-        fig.update_layout(
-            height=350,
-            title=dict(text=metric, x=0.5, font=dict(size=14)),
-            paper_bgcolor="rgba(46, 52, 64, 0.95)",
-            plot_bgcolor="rgba(59, 66, 82, 0.7)",
-            font=dict(color="#d8dee9"),
-            hovermode="x unified",
-            margin=dict(l=50, r=30, t=50, b=40),
-            xaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)"),
-            yaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)", title="Value"),
-            showlegend=True,  
-            legend=dict(
-                bgcolor="rgba(46, 52, 64, 0.8)",
-                bordercolor="rgba(136, 192, 208, 0.3)",
-                borderwidth=1,
-                font=dict(color="#d8dee9"),
-            ),
-        )
-        
-        figures.append(fig)
-    
-    # Ensure we always return exactly 16 items
-    while len(figures) < num_plots:
-        empty_fig = go.Figure()
-        empty_fig.update_layout(
-            paper_bgcolor="rgba(46, 52, 64, 0.95)",
-            plot_bgcolor="rgba(59, 66, 82, 0.7)",
-            font=dict(color="#d8dee9"),
-            title=dict(text="Select a metric", x=0.5),
-        )
-        figures.append(empty_fig)
-    
-    return figures[:num_plots]
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8050)

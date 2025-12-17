@@ -1,4 +1,4 @@
-name: energy_measurement
+name: alumet-viz
 channels:
   - conda-forge
 dependencies:
@@ -6,10 +6,8 @@ dependencies:
   - numpy
   - pandas
   - python=3.12
-  - seaborn
   - pip:
     - dash
     - dash-ag-grid
     - dash-bootstrap-components
-    - marimo==0.18.0
     - toml

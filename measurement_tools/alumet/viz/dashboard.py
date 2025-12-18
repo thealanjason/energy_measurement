@@ -415,8 +415,25 @@ app.layout = dbc.Container(
                                     },
                                 ),
                                 dcc.Tab(
-                                    label="📊 Comparative Analysis",
+                                    label="⚖️ Comparative Analysis",
                                     value="comparative-tab",
+                                    style={
+                                        "backgroundColor": "#3B4252",
+                                        "color": "#ECEFF4",
+                                        "padding": "12px 20px",
+                                        "fontSize": "1rem",
+                                    },
+                                    selected_style={
+                                        "backgroundColor": "#5E81AC",
+                                        "color": "#ECEFF4",
+                                        "padding": "12px 20px",
+                                        "fontSize": "1rem",
+                                        "fontWeight": "600",
+                                    },
+                                ),
+                                dcc.Tab(
+                                    label="🔎 Process Specific",
+                                    value="process-specific-tab",
                                     style={
                                         "backgroundColor": "#3B4252",
                                         "color": "#ECEFF4",
@@ -998,7 +1015,91 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
             inverse=True,
             style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
         )
-    
+
+    elif tab_value == "process-specific-tab":
+        if not processed_df_data or not process_time_range:
+            return dbc.Alert(
+                "No data available. Please load data using the Visualize button.",
+                color="info",
+                style={"margin": "0", "fontWeight": "bold"},
+            )
+
+        df_processed = pd.DataFrame(processed_df_data)
+        df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
+
+        proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
+        proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+
+        if proc_start is None or proc_end is None:
+            return dbc.Alert(
+                "Process time range not available.",
+                color="warning",
+                style={"margin": "0", "fontWeight": "bold"},
+            )
+
+        # Only allow choosing metrics that actually have samples inside the process window
+        df_process_level= df_processed[(df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)].copy()
+
+        if df_process_level.empty:
+            return dbc.Alert(
+                "No samples inside process active window.",
+                color="warning",
+                style={"margin": "0", "fontWeight": "bold"},
+            )
+
+        # Metric options 
+        metric_ids = sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
+        if len(metric_ids) < 2:
+            return dbc.Alert("Need at least 2 metrics inside process window.", color="warning", style={"margin": "0", "fontWeight": "bold"})
+
+        return dbc.Card(
+            [
+                dbc.CardBody(
+                    [
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        html.Label("X metric_id:", style={"color": "#ECEFF4", "fontWeight": "600"}),
+                                        dcc.Dropdown(
+                                            id="ps-xmetric-dropdown",
+                                            options=[{"label": m, "value": m} for m in metric_ids],
+                                            value=metric_ids[0],
+                                            clearable=False,
+                                            persistence=True,
+                                            className="dark-dropdown",
+                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        ),
+                                    ],
+                                    width=12, lg=6, className="mb-3",
+                                ),
+                                dbc.Col(
+                                    [
+                                        html.Label("Y metric_id:", style={"color": "#ECEFF4", "fontWeight": "600"}),
+                                        dcc.Dropdown(
+                                            id="ps-ymetric-dropdown",
+                                            options=[{"label": m, "value": m} for m in metric_ids],
+                                            value=metric_ids[1],
+                                            clearable=False,
+                                            persistence=True,
+                                            className="dark-dropdown",
+                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        ),
+                                    ],
+                                    width=12, lg=6, className="mb-3",
+                                ),
+                            ]
+                        ),
+                        dcc.Graph(id="ps-xy-graph", style={"height": "70vh"}),
+                    ],
+                    style={"padding": "25px", "backgroundColor": "#3B4252"},
+                )
+            ],
+            color="dark",
+            inverse=True,
+            style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+        )
+
     else:  # Second tab: Comparative visualization (2x2 grid)
         if not original_df_data:
             return dbc.Alert(
@@ -1650,6 +1751,97 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
             "alignItems": "flex-start",
         },
     )
+
+    
+
+@app.callback(
+    Output("ps-xy-graph", "figure"),
+    Input("ps-xmetric-dropdown", "value"),
+    Input("ps-ymetric-dropdown", "value"),
+    State("processed-df-store", "data"),
+    State("process-time-range-store", "data"),
+    prevent_initial_call=True,
+)
+def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_time_range):
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor="rgba(46, 52, 64, 0.95)",
+        plot_bgcolor="rgba(59, 66, 82, 0.7)",
+        font=dict(color="#d8dee9"),
+        margin=dict(l=70, r=30, t=60, b=60),
+    )
+
+    if not processed_df_data or not process_time_range or not x_metric_id or not y_metric_id:
+        fig.update_layout(title=dict(text="Select X and Y metric_id", x=0.5))
+        return fig
+
+    dfp = pd.DataFrame(processed_df_data)
+    dfp["timestamp"] = pd.to_datetime(dfp["timestamp"])
+
+    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+    if proc_start is None or proc_end is None:
+        fig.update_layout(title=dict(text="Process time range not available", x=0.5))
+        return fig
+
+    # Truncate to process window first (your requirement)
+    dfw = dfp[(dfp["timestamp"] >= proc_start) & (dfp["timestamp"] <= proc_end)].copy()
+
+    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
+    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
+
+    if dfx.empty or dfy.empty:
+        fig.update_layout(title=dict(text="No samples for one (or both) metrics in process window", x=0.5))
+        return fig
+
+    dfx = dfx.sort_values("timestamp")
+    dfy = dfy.sort_values("timestamp")
+
+    # Auto tolerance for asof matching: ~2x the larger median sampling interval
+    dx = dfx["timestamp"].diff().median()
+    dy = dfy["timestamp"].diff().median()
+    tol = None
+    if pd.notna(dx) or pd.notna(dy):
+        base = max([v for v in [dx, dy] if pd.notna(v)], default=pd.Timedelta(milliseconds=0))
+        tol = base * 2 if base > pd.Timedelta(0) else pd.Timedelta(seconds=1)
+
+    # Align: for each x timestamp, grab the nearest y (within tolerance)
+    dfxy = pd.merge_asof(
+        dfx,
+        dfy,
+        on="timestamp",
+        direction="nearest",
+        tolerance=tol,
+    ).dropna(subset=["y"])
+
+    if dfxy.empty:
+        fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
+        return fig
+
+    # Curve in time order: x(t) vs y(t)
+    fig.add_trace(
+        go.Scatter(
+            x=dfxy["x"],
+            y=dfxy["y"],
+            mode="lines+markers",
+            name=f"{y_metric_id} vs {x_metric_id}",
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>"
+                "t: %{customdata|%H:%M:%S.%L}<br>"
+                "x: %{x:.4f}<br>"
+                "y: %{y:.4f}<extra></extra>"
+            ),
+            customdata=dfxy["timestamp"],
+        )
+    )
+
+    fig.update_layout(
+        title=dict(text=f"Process-window relationship: {y_metric_id} vs {x_metric_id}", x=0.5),
+        xaxis=dict(title=str(x_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
+        yaxis=dict(title=str(y_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
+    )
+    return fig
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8050)

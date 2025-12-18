@@ -187,8 +187,8 @@ cpu_usage = { metric = "cpu_percent", kind = "total" }
 No details in the documentation. So configuration capabilities will need to be found from source code.
 
 
-
 ## Visualization Dashboard
+
 To better visualize the measurement results, a thorough EDA is visualized through a visualization dashboard. 
 
 Run

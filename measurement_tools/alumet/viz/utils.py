@@ -1,7 +1,6 @@
-import base64
+import warnings
 import re
 import pandas as pd
-import io
 import plotly.graph_objects as go
 import plotly.colors as pc
 from plotly.subplots import make_subplots
@@ -11,16 +10,13 @@ from pathlib import Path
 # ================================================
 # CSV dataframe helper functions
 # ================================================
-def load_csv_from_contents(contents: str) -> pd.DataFrame:
-    """Load CSV data from uploaded file contents."""
-    if contents is None:
-        raise ValueError("No CSV contents provided.")
-    
-    content_type, content_string = contents.split(',')
-    decoded = base64.b64decode(content_string)
+def load_csv_from_path(csv_path: Path) -> pd.DataFrame:
+    """Load CSV data from file path."""
+    if not csv_path.exists():
+        raise ValueError(f"CSV file not found: {csv_path}")
     
     try:
-        df = pd.read_csv(io.StringIO(decoded.decode('utf-8')), sep=";")
+        df = pd.read_csv(csv_path, sep=";")
     except Exception as e:
         raise ValueError(f"Error parsing CSV: {str(e)}")
     
@@ -59,31 +55,38 @@ def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 # ================================================
-# Upload file helper functions
+# Directory and file path helper functions
 # ================================================
-def parse_uploaded_file_contents(contents: str) -> str:
-    """Parse base64 encoded file contents and return decoded string."""
-    if contents is None:
-        return None
-    # Content format: "data:text/csv;base64,<base64_string>"
-    content_type, content_string = contents.split(',')
-    decoded = base64.b64decode(content_string)
-    return decoded.decode('utf-8')
-
-def validate_file_extension(filename: str, allowed_extensions: List[str]) -> bool:
-    """Validate if file extension matches allowed extensions.
+def find_files_in_directory(directory_path: str, extensions: List[str]) -> List[Path]:
+    """Find files with specified extensions in a directory.
     
     Args:
-        filename: Name of the uploaded file
-        allowed_extensions: List of allowed extensions (e.g., ['.csv'], ['.log', '.txt'])
+        directory_path: Path to the directory
+        extensions: List of file extensions to search for
     
     Returns:
-        bool: True if extension is valid, False otherwise
+        List of Path objects for matching files
     """
-    if not filename:
-        return False
-    file_ext = Path(filename).suffix.lower()
-    return file_ext in [ext.lower() for ext in allowed_extensions]
+    dir_path = Path(directory_path)
+    if not dir_path.exists():
+        raise ValueError(f"Directory does not exist: {directory_path}")
+    if not dir_path.is_dir():
+        raise ValueError(f"Path is not a directory: {directory_path}")
+    
+    found_files = []
+    for ext in extensions:
+        found_files.extend(dir_path.glob(f"*{ext}"))
+    if not found_files:
+        raise ValueError(f"No files found with extensions: {extensions} in directory: {directory_path}")
+    if len(found_files) > 1:
+        warnings.warn(f"Multiple files found with extensions: {extensions} in directory: {directory_path}. Returning the first one.")
+    return sorted(found_files)[0]
+
+def read_file_content(file_path: Path) -> str:
+    """Read file content as string."""
+    if not file_path.exists():
+        raise ValueError(f"File not found: {file_path}")
+    return file_path.read_text(encoding='utf-8')
 
 # ================================================
 # Information extraction helper functions
@@ -144,7 +147,7 @@ def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
     return proc_start, proc_end
     
 # ================================================
-# Metric title formatting helper functions
+# Metric plot label, title, and hovertemplate formatting helper functions
 # ================================================
 def _split_kind_id(part: str) -> tuple:
     if not part:
@@ -245,6 +248,30 @@ def _format_metric_title(metric_id: str) -> str:
     except Exception:
         # If parsing fails, return the original metric_id with underscores replaced by spaces for readability
         return metric_id.replace("_", " ")
+
+def metric_id_to_plot_label(metric_id: str, max_len: int = 60) -> str:
+    if not metric_id:
+        return ""
+    s = str(metric_id)
+
+    # normalizations
+    s = s.replace("_R_", " | R=")
+    s = s.replace("_C_", " | C=")
+    s = s.replace("_A_", " | ")
+    s = s.replace("__", "_")
+
+    # shorten some metric names
+    s = s.replace("local_machine", "local")
+    s = s.replace("cpu_percent_%", "cpu%")
+    s = s.replace("kernel_cpu_time_ms", "kernel_cpu_ms")
+
+    # remove process IDs
+    s = re.sub(r"\| C=process_\d+(\.\d+)?", "| C=process", s)
+
+    # truncate for display
+    if len(s) > max_len:
+        s = s[: max_len - 1] + "…"
+    return s
 
 # ================================================
 # Helper functions for MATCH callbacks

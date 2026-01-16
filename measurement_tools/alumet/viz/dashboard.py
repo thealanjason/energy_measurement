@@ -6,17 +6,17 @@ from pathlib import Path
 from dash import Dash, html, dcc, callback, Input, Output, State, ctx, MATCH
 
 from utils import (
-    load_csv_from_contents, 
-    validate_file_extension,
+    load_csv_from_path,
     preprocess_dataframe_for_visualization, 
     get_process_time_range_from_df, 
-    parse_uploaded_file_contents, 
+    read_file_content,
     extract_pid_from_content, 
     is_gpu_from_content,
     get_color_palette,
     create_all_timeseries_plots,
     norm,
     uniq_str,
+    find_files_in_directory,
 )
 
 # Get base directory
@@ -149,7 +149,7 @@ app.layout = dbc.Container(
             ],
         ),
         
-        # File Path Selection Section
+        # Directory path selection section where the Alumet measurement files are located
         dbc.Row(
             [
                 dbc.Col(
@@ -157,7 +157,7 @@ app.layout = dbc.Container(
                         dbc.Card(
                             [
                                 dbc.CardHeader(
-                                    "Upload Measurement Files",
+                                    "Select Measurement Directory",
                                     style={
                                         "backgroundColor": "#434C5E",
                                         "color": "#ECEFF4",
@@ -173,7 +173,7 @@ app.layout = dbc.Container(
                                             [
                                                 html.Label(
                                                     [
-                                                        "CSV File: ",
+                                                        "Directory Path: ",
                                                         html.Span("(Required)", style={"color": "#BF616A", "fontSize": "0.85rem", "fontWeight": "400"}),
                                                     ],
                                                     style={
@@ -183,144 +183,25 @@ app.layout = dbc.Container(
                                                         "fontWeight": "500",
                                                     }
                                                 ),
-                                                dcc.Upload(
-                                                    id="csv-file-upload",
-                                                    children=html.Div(id="csv-upload-children"),
-                                                    disabled=False,
+                                                dcc.Input(
+                                                    id="directory-path-input",
+                                                    type="text",
+                                                    placeholder="Input type directory containing .csv, .log, and .toml files",
+                                                    debounce=True,
                                                     style={
                                                         "width": "100%",
-                                                        "height": "60px",
-                                                        "lineHeight": "60px",
-                                                        "borderWidth": "2px",
-                                                        "borderStyle": "dashed",
+                                                        "padding": "12px",
                                                         "borderRadius": "8px",
-                                                        "borderColor": "#5E81AC",
-                                                        "textAlign": "center",
+                                                        "border": "2px solid #5E81AC",
                                                         "backgroundColor": "#434C5E",
                                                         "color": "#ECEFF4",
-                                                        "cursor": "pointer",
-                                                        "margin": "0",
-                                                    },
-                                                    style_active={
-                                                        "borderColor": "#88C0D0",
-                                                        "backgroundColor": "#3B4252",
-                                                    },
-                                                    style_reject={
-                                                        "borderColor": "#BF616A",
-                                                        "backgroundColor": "#3B4252",
-                                                    },
-                                                    accept=".csv",
-                                                ),
-                                                html.Div(
-                                                    id="csv-upload-status",
-                                                    style={
-                                                        "marginTop": "8px",
-                                                        "fontSize": "0.9rem",
-                                                        "color": "#88C0D0",
-                                                    }
-                                                ),
-                                            ],
-                                            style={"marginBottom": "20px"},
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Label(
-                                                    [
-                                                        "Log File: ",
-                                                        html.Span("(Required)", style={"color": "#BF616A", "fontSize": "0.85rem", "fontWeight": "400"}),
-                                                    ],
-                                                    style={
-                                                        "color": "#ECEFF4",
-                                                        "marginBottom": "10px",
                                                         "fontSize": "1rem",
-                                                        "fontWeight": "500",
-                                                    }
-                                                ),
-                                                dcc.Upload(
-                                                    id="log-file-upload",
-                                                    children=html.Div(id="log-upload-children"),
-                                                    disabled=False,
-                                                    style={
-                                                        "width": "100%",
-                                                        "height": "60px",
-                                                        "lineHeight": "60px",
-                                                        "borderWidth": "2px",
-                                                        "borderStyle": "dashed",
-                                                        "borderRadius": "8px",
-                                                        "borderColor": "#5E81AC",
-                                                        "textAlign": "center",
-                                                        "backgroundColor": "#434C5E",
-                                                        "color": "#ECEFF4",
-                                                        "cursor": "pointer",
-                                                        "margin": "0",
                                                     },
-                                                    style_active={
-                                                        "borderColor": "#88C0D0",
-                                                        "backgroundColor": "#3B4252",
-                                                    },
-                                                    style_reject={
-                                                        "borderColor": "#BF616A",
-                                                        "backgroundColor": "#3B4252",
-                                                    },
-                                                    accept=".log,.txt",
                                                 ),
                                                 html.Div(
-                                                    id="log-upload-status",
+                                                    id="directory-status",
                                                     style={
-                                                        "marginTop": "8px",
-                                                        "fontSize": "0.9rem",
-                                                        "color": "#88C0D0",
-                                                    }
-                                                ),
-                                            ],
-                                            style={"marginBottom": "20px"},
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Label(
-                                                    [
-                                                        "Config TOML File: ",
-                                                        html.Span("(Optional)", style={"color": "#88C0D0", "fontSize": "0.85rem", "fontWeight": "400"}),
-                                                    ],
-                                                    style={
-                                                        "color": "#ECEFF4",
-                                                        "marginBottom": "10px",
-                                                        "fontSize": "1rem",
-                                                        "fontWeight": "500",
-                                                    }
-                                                ),
-                                                dcc.Upload(
-                                                    id="config-file-upload",
-                                                    children=html.Div(id="config-upload-children"),
-                                                    disabled=False,
-                                                    style={
-                                                        "width": "100%",
-                                                        "height": "60px",
-                                                        "lineHeight": "60px",
-                                                        "borderWidth": "2px",
-                                                        "borderStyle": "dashed",
-                                                        "borderRadius": "8px",
-                                                        "borderColor": "#5E81AC",
-                                                        "textAlign": "center",
-                                                        "backgroundColor": "#434C5E",
-                                                        "color": "#ECEFF4",
-                                                        "cursor": "pointer",
-                                                        "margin": "0",
-                                                    },
-                                                    style_active={
-                                                        "borderColor": "#88C0D0",
-                                                        "backgroundColor": "#3B4252",
-                                                    },
-                                                    style_reject={
-                                                        "borderColor": "#BF616A",
-                                                        "backgroundColor": "#3B4252",
-                                                    },
-                                                    accept=".toml",
-                                                ),
-                                                html.Div(
-                                                    id="config-upload-status",
-                                                    style={
-                                                        "marginTop": "8px",
+                                                        "marginTop": "12px",
                                                         "fontSize": "0.9rem",
                                                         "color": "#88C0D0",
                                                     }
@@ -354,7 +235,7 @@ app.layout = dbc.Container(
                                         html.Div(
                                             [
                                                 dbc.Button(
-                                                    "📊 Visualize",
+                                                    "Visualize",
                                                     id="visualize-button",
                                                     n_clicks=0,
                                                     color="primary",
@@ -466,7 +347,6 @@ app.layout = dbc.Container(
         dcc.Store(id="processed-df-store", data=None),  # Store processed dataframe
         dcc.Store(id="original-df-store", data=None),  # Store original dataframe
         dcc.Store(id="process-time-range-store", data=None),  # Store process time range
-        dcc.Store(id="config-file-path-store", data=None),  # Store config file path
     ],
     style={
         "backgroundColor": "#2E3440",
@@ -476,327 +356,88 @@ app.layout = dbc.Container(
     },
 )
 
-# Callbacks for upload status detection
+# Callback for directory path validation and status
 @app.callback(
-    Output("csv-file-upload", "disabled"),
-    Output("csv-file-upload", "style"),
-    Output("csv-upload-children", "children"),
-    Output("csv-upload-status", "children"),
-    Output("csv-file-upload", "contents"),  # Clear contents if invalid
-    Input("csv-file-upload", "contents"),
-    State("csv-file-upload", "filename"),
+    Output("directory-status", "children"),
+    Input("directory-path-input", "value"),
 )
-def update_csv_upload_status(contents, filename):
-    if contents is not None:
-        # Validate file extension
-        if not validate_file_extension(filename, ['.csv']):
-            # Invalid file type - show error and clear upload
-            error_style = {
-                "width": "100%",
-                "height": "60px",
-                "lineHeight": "60px",
-                "borderWidth": "2px",
-                "borderStyle": "solid",
-                "borderRadius": "8px",
-                "borderColor": "#BF616A",
-                "textAlign": "center",
-                "backgroundColor": "#3B4252",
-                "color": "#BF616A",
-                "cursor": "pointer",
-                "margin": "0",
-            }
-            return (
-                False, # upload section is ot disabled (allow re-upload)
-                error_style,
-                html.Div([
-                    "❌ Invalid File Type",
-                ]),
-                html.Span(
-                    f"Error: File must be .csv format. Uploaded: {Path(filename).suffix if filename else 'Unknown'}",
-                    style={"color": "#BF616A", "fontWeight": "500"}
-                ),
-                None, # contents are cleared
+def update_directory_status(directory_path):
+    if not directory_path or not directory_path.strip():
+        return html.Span("", style={"display": "none"})
+    
+    try:
+        dir_path = Path(directory_path.strip())
+        if not dir_path.exists():
+            return html.Span(
+                f"❌Directory does not exist: {directory_path}",
+                style={"color": "#BF616A", "fontWeight": "500"}
+            )
+        if not dir_path.is_dir():
+            return html.Span(
+                f"❌ Path is not a directory: {directory_path}",
+                style={"color": "#BF616A", "fontWeight": "500"}
             )
         
-        # File uploaded and valid - disable and show success
-        disabled_style = {
-            "width": "100%",
-            "height": "60px",
-            "lineHeight": "60px",
-            "borderWidth": "2px",
-            "borderStyle": "solid",
-            "borderRadius": "8px",
-            "borderColor": "#A3BE8C",
-            "textAlign": "center",
-            "backgroundColor": "#3B4252",
-            "color": "#A3BE8C",
-            "cursor": "not-allowed",
-            "margin": "0",
-            "opacity": "0.7",
-        }
-        return (
-            True, # upload section is disabled
-            disabled_style,
-            html.Div([
-                "✅ CSV File Uploaded",
-            ]),
-            html.Span("File uploaded successfully", style={"color": "#A3BE8C", "fontWeight": "500"}),
-            contents, # contents are kept
-        )
-    else:
-        # No file uploaded,upload section is enabled and default style is shown
-        default_style = {
-            "width": "100%",
-            "height": "60px",
-            "lineHeight": "60px",
-            "borderWidth": "2px",
-            "borderStyle": "dashed",
-            "borderRadius": "8px",
-            "borderColor": "#5E81AC",
-            "textAlign": "center",
-            "backgroundColor": "#434C5E",
-            "color": "#ECEFF4",
-            "cursor": "pointer",
-            "margin": "0",
-        }
-        return (
-            False, # upload section is not disabled
-            default_style,
-            html.Div([
-                "Drag and Drop or ",
-                html.A("Select CSV File", style={"color": "#5E81AC", "textDecoration": "underline", "cursor": "pointer"}),
-            ]),
-            html.Span("", style={"display": "none"}),
-            None, # no contents are uploaded
-        )
+        # Check for required files
+        csv_file = find_files_in_directory(directory_path, ['.csv'])
+        log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
+        
+        status_parts = []
+        if csv_file:
+            status_parts.append(f"✅ CSV: {csv_file.name}")
+        else:
+            status_parts.append("❌ CSV: Not found")
+        
+        if log_file:
+            status_parts.append(f"✅ Log: {log_file.name}")
+        else:
+            status_parts.append("❌ Log: Not found")
 
-@app.callback(
-    Output("log-file-upload", "disabled"),
-    Output("log-file-upload", "style"),
-    Output("log-upload-children", "children"),
-    Output("log-upload-status", "children"),
-    Output("log-file-upload", "contents"), # contents are cleared if invalid
-    Input("log-file-upload", "contents"),
-    State("log-file-upload", "filename"),
-)
-def update_log_upload_status(contents, filename):
-    if contents is not None:
-        # Validate file extension
-        if not validate_file_extension(filename, ['.log', '.txt']):
-            # Invalid file type - show error and clear upload
-            error_style = {
-                "width": "100%",
-                "height": "60px",
-                "lineHeight": "60px",
-                "borderWidth": "2px",
-                "borderStyle": "solid",
-                "borderRadius": "8px",
-                "borderColor": "#BF616A",
-                "textAlign": "center",
-                "backgroundColor": "#3B4252",
-                "color": "#BF616A",
-                "cursor": "pointer",
-                "margin": "0",
-            }
-            return (
-                False, # upload section is not disabled (allow re-upload)
-                error_style,
-                html.Div([
-                    "❌ Invalid File Type",
-                ]),
-                html.Span(
-                    f"Error: File must be .log or .txt format. Uploaded: {Path(filename).suffix if filename else 'unknown'}",
-                    style={"color": "#BF616A", "fontWeight": "500"}
-                ),
-                None, # contents are cleared
-            )
-        
-        # File uploaded and valid - disable and show success
-        disabled_style = {
-            "width": "100%",
-            "height": "60px",
-            "lineHeight": "60px",
-            "borderWidth": "2px",
-            "borderStyle": "solid",
-            "borderRadius": "8px",
-            "borderColor": "#A3BE8C",
-            "textAlign": "center",
-            "backgroundColor": "#3B4252",
-            "color": "#A3BE8C",
-            "cursor": "not-allowed",
-            "margin": "0",
-            "opacity": "0.7",
-        }
-        return (
-            True, # upload section is disabled
-            disabled_style,
-            html.Div([
-                "✅ Log File Uploaded",
-            ]),
-            html.Span("File uploaded successfully", style={"color": "#A3BE8C", "fontWeight": "500"}),
-            contents, # contents are kept
+        color = "#A3BE8C" if csv_file and log_file else "#BF616A"
+        return html.Div(
+            [html.Span(part, style={"display": "block", "marginBottom": "4px"}) for part in status_parts],
+            style={"color": color, "fontWeight": "500"}
         )
-    else:
-        # No file uploaded, upload section is enabled and default style is shown
-        default_style = {
-            "width": "100%",
-            "height": "60px",
-            "lineHeight": "60px",
-            "borderWidth": "2px",
-            "borderStyle": "dashed",
-            "borderRadius": "8px",
-            "borderColor": "#5E81AC",
-            "textAlign": "center",
-            "backgroundColor": "#434C5E",
-            "color": "#ECEFF4",
-            "cursor": "pointer",
-            "margin": "0",
-        }
-        return (
-            False, # upload section is not disabled
-            default_style,
-            html.Div([
-                "Drag and Drop or ",
-                html.A("Select Log File", style={"color": "#5E81AC", "textDecoration": "underline", "cursor": "pointer"}),
-            ]),
-            html.Span("", style={"display": "none"}),
-            None, # no contents are uploaded
-        )
-
-@app.callback(
-    Output("config-file-upload", "disabled"),
-    Output("config-file-upload", "style"),
-    Output("config-upload-children", "children"),
-    Output("config-upload-status", "children"),
-    Output("config-file-upload", "contents"),  # Clear contents if invalid
-    Input("config-file-upload", "contents"),
-    State("config-file-upload", "filename"),
-)
-def update_config_upload_status(contents, filename):
-    if contents is not None:
-        # Validate file extension
-        if not validate_file_extension(filename, ['.toml']):
-            # Invalid file type - show error and clear upload
-            error_style = {
-                "width": "100%",
-                "height": "60px",
-                "lineHeight": "60px",
-                "borderWidth": "2px",
-                "borderStyle": "solid",
-                "borderRadius": "8px",
-                "borderColor": "#BF616A",
-                "textAlign": "center",
-                "backgroundColor": "#3B4252",
-                "color": "#BF616A",
-                "cursor": "pointer",
-                "margin": "0",
-            }
-            return (
-                False, # upload section is not disabled (allow re-upload)
-                error_style,
-                html.Div([
-                    "❌ Invalid File Type",
-                ]),
-                html.Span(
-                    f"Error: File must be .toml format. Uploaded: {Path(filename).suffix if filename else 'Unknown'}",
-                    style={"color": "#BF616A", "fontWeight": "500"}
-                ),
-                None, # contents are cleared
-            )
-        
-        # File uploaded and valid - disable and show success
-        disabled_style = {
-            "width": "100%",
-            "height": "60px",
-            "lineHeight": "60px",
-            "borderWidth": "2px",
-            "borderStyle": "solid",
-            "borderRadius": "8px",
-            "borderColor": "#A3BE8C",
-            "textAlign": "center",
-            "backgroundColor": "#3B4252",
-            "color": "#A3BE8C",
-            "cursor": "not-allowed",
-            "margin": "0",
-            "opacity": "0.7",
-        }
-        return (
-            True, # upload section is disabled
-            disabled_style,
-            html.Div([
-                "✅ Config File Uploaded",
-            ]),
-            html.Span("File uploaded successfully", style={"color": "#A3BE8C", "fontWeight": "500"}),
-            contents, # contents are kept
-        )
-    else:
-        # No file - enable and show default
-        default_style = {
-            "width": "100%",
-            "height": "60px",
-            "lineHeight": "60px",
-            "borderWidth": "2px",
-            "borderStyle": "dashed",
-            "borderRadius": "8px",
-            "borderColor": "#5E81AC",
-            "textAlign": "center",
-            "backgroundColor": "#434C5E",
-            "color": "#ECEFF4",
-            "cursor": "pointer",
-            "margin": "0",
-        }
-        return (
-            False, # upload section is not disabled
-            default_style,
-            html.Div([
-                "Drag and Drop or ",
-                html.A("Select Config TOML File", style={"color": "#5E81AC", "textDecoration": "underline", "cursor": "pointer"}),
-            ]),
-            html.Span("", style={"display": "none"}),
-            None, # no contents are uploaded
+    except Exception as e:
+        return html.Span(
+            f"❌ Error: {str(e)}",
+            style={"color": "#BF616A", "fontWeight": "500"}
         )
 
 @app.callback(
     Output("pid-display", "children"),
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
-    State("log-file-upload", "contents"),
-    State("csv-file-upload", "contents"),
+    State("directory-path-input", "value"),
 )
-def update_process_info(n_clicks, log_file_contents, csv_file_contents):
-    if n_clicks == 0 or not csv_file_contents:
+def update_process_info(n_clicks, directory_path):
+    if n_clicks == 0 or not directory_path or not directory_path.strip():
         return "process id: N/A", "device: N/A"
     
-    # If log file is provided, extract info from it
-    if log_file_contents:
-        log_content = parse_uploaded_file_contents(log_file_contents)
-        pid = extract_pid_from_content(log_content)
-        device = "gpu" if is_gpu_from_content(log_content) else "cpu"
-        return (
-            f"process id: {pid or 'N/A'}",
-            f"device: {device}",
-        )
-    
-    # If no log file, show N/A
-    return "process id: N/A", "device: N/A"
+    # Find and read log file
+    log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
+    log_content = read_file_content(log_file)
+    pid = extract_pid_from_content(log_content)
+    device = "gpu" if is_gpu_from_content(log_content) else "cpu"
+    return (
+        f"process id: {pid or 'N/A'}",
+        f"device: {device}",
+    )
 
 @app.callback(
     Output("status-message", "children"),
     Output("processed-df-store", "data"),
     Output("original-df-store", "data"),
     Output("process-time-range-store", "data"),
-    Output("config-file-path-store", "data"),
     Input("visualize-button", "n_clicks"),
-    State("log-file-upload", "contents"),
-    State("csv-file-upload", "contents"),
-    State("config-file-upload", "contents"),
+    State("directory-path-input", "value"),
 )
-def load_and_visualize(n_clicks, log_file_contents, csv_file_contents, config_file_contents):
+def load_and_visualize(n_clicks, directory_path):
     if n_clicks == 0:
         return (
             dbc.Alert(
                 [
-                    "Upload files above and click ",
+                    "Enter a directory path above and click ",
                     html.Strong("Visualize"),
                     " to load and visualize data.",
                 ],
@@ -806,27 +447,14 @@ def load_and_visualize(n_clicks, log_file_contents, csv_file_contents, config_fi
             None,
             None,
             None,
-            None,
         )
     
-    # Validate required CSV file
-    if not csv_file_contents:
+    # Validate directory path
+    if not directory_path or not directory_path.strip():
         status_msg = dbc.Alert(
             [
                 html.Strong("Error: "),
-                "CSV file is required. Please upload a CSV file."
-            ],
-            color="danger",
-            style={"margin": "0"},
-        )
-        return status_msg, None, None, None, None
-    
-    # Validate required log file
-    if not log_file_contents:
-        status_msg = dbc.Alert(
-            [
-                html.Strong("Error: "),
-                "Log file is required. Please upload a log file to extract process ID and device information."
+                "Directory path is required. Please enter a directory path."
             ],
             color="danger",
             style={"margin": "0"},
@@ -834,8 +462,59 @@ def load_and_visualize(n_clicks, log_file_contents, csv_file_contents, config_fi
         return status_msg, None, None, None, None
     
     try:
-        # Load all data from CSV contents
-        df_all = load_csv_from_contents(csv_file_contents)
+        dir_path = Path(directory_path.strip())
+        if not dir_path.exists():
+            status_msg = dbc.Alert(
+                [
+                    html.Strong("Error: "),
+                    f"Directory does not exist: {directory_path}"
+                ],
+                color="danger",
+                style={"margin": "0"},
+            )
+            return status_msg, None, None, None, None
+        
+        if not dir_path.is_dir():
+            status_msg = dbc.Alert(
+                [
+                    html.Strong("Error: "),
+                    f"Path is not a directory: {directory_path}"
+                ],
+                color="danger",
+                style={"margin": "0"},
+            )
+            return status_msg, None, None, None, None
+        
+        # Find required files
+        csv_file = find_files_in_directory(directory_path, ['.csv'])
+        log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
+        
+        # Validate required CSV file
+        if not csv_file:
+            status_msg = dbc.Alert(
+                [
+                    html.Strong("Error: "),
+                    "CSV file is required. Please ensure the directory contains a .csv file."
+                ],
+                color="danger",
+                style={"margin": "0"},
+            )
+            return status_msg, None, None, None, None
+        
+        # Validate required log file
+        if not log_file:
+            status_msg = dbc.Alert(
+                [
+                    html.Strong("Error: "),
+                    "Log file is required. Please ensure the directory contains a .log or .txt file."
+                ],
+                color="danger",
+                style={"margin": "0"},
+            )
+            return status_msg, None, None, None, None
+        
+        # Load all data from CSV file
+        df_all = load_csv_from_path(csv_file)
         
         # Preprocess dataframe for all time series visualization
         df_processed = preprocess_dataframe_for_visualization(df_all)
@@ -844,17 +523,11 @@ def load_and_visualize(n_clicks, log_file_contents, csv_file_contents, config_fi
         proc_start, proc_end = get_process_time_range_from_df(df_all)
         proc_duration = (proc_end - proc_start).total_seconds() if proc_start and proc_end else 0
         
-        # Build success message with file validation info
-        file_info = []
-        if config_file_contents:
-            file_info.append("optional config file uploaded.")
-        file_status = f" ({', '.join(file_info)})" if file_info else ""
-        
         status_msg = dbc.Alert(
             [
                 "✅ ",
                 html.Strong("Data loaded successfully"),
-                f" — runtime: {proc_duration:.2f}s{file_status}"
+                f" — runtime: {proc_duration:.2f}s"
             ],
             color="success",
             style={"margin": "0"},
@@ -866,10 +539,7 @@ def load_and_visualize(n_clicks, log_file_contents, csv_file_contents, config_fi
         process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
                              "end": proc_end.isoformat() if proc_end else None}
         
-        # Store config file contents if provided (as base64 string)
-        config_contents_str = config_file_contents if config_file_contents else None
-        
-        return status_msg, df_processed_json, df_all_json, process_time_range, config_contents_str
+        return status_msg, df_processed_json, df_all_json, process_time_range
         
     except Exception as e:
         status_msg = dbc.Alert(
@@ -1813,6 +1483,8 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         direction="nearest",
         tolerance=tol,
     ).dropna(subset=["y"])
+    dfxy = dfxy.sort_values("timestamp")
+    print(dfxy)
 
     if dfxy.empty:
         fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
@@ -1836,7 +1508,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
     )
 
     fig.update_layout(
-        title=dict(text=f"Process-window relationship: {y_metric_id} vs {x_metric_id}", x=0.5),
+        title=dict(text=f"Process-specific relationship: {y_metric_id} vs {x_metric_id}", x=0.5),
         xaxis=dict(title=str(x_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
         yaxis=dict(title=str(y_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
     )

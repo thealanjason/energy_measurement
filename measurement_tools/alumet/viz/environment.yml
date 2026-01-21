@@ -5,6 +5,7 @@ dependencies:
   - matplotlib
   - numpy
   - pandas
+  - pyarrow  # Fast Parquet I/O for server-side caching of large DataFrames
   - python=3.12
   - pip:
     - dash

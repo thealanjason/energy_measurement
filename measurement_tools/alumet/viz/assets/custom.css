@@ -316,3 +316,34 @@ div[class*="mark-text"] {
     max-width: 100% !important;
 }
 
+/* Compact dropdown styling for grid filter row */
+.compact-dropdown .Select-control {
+    min-height: 28px !important;
+    height: 28px !important;
+}
+
+.compact-dropdown .Select-value {
+    line-height: 26px !important;
+    padding-left: 6px !important;
+}
+
+.compact-dropdown .Select-placeholder {
+    line-height: 26px !important;
+    padding-left: 6px !important;
+}
+
+.compact-dropdown .Select-input {
+    height: 26px !important;
+}
+
+.compact-dropdown .Select-input > input {
+    padding: 4px 0 !important;
+}
+
+.compact-dropdown .Select-arrow-zone {
+    padding: 4px !important;
+}
+
+.compact-dropdown .Select-clear-zone {
+    padding: 4px !important;
+}

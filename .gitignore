@@ -1,3 +1,4 @@
 **/__pycache__/
 .DS_Store
 __pycache__/
+**/05_smaller_polling/**

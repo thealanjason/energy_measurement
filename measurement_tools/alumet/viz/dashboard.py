@@ -1,8 +1,14 @@
-from typing import Any
+from typing import Any, Optional
+import copy
+import uuid
+import tempfile
+import atexit
+import shutil
 import pandas as pd
 import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 from pathlib import Path
+import dash
 from dash import Dash, html, dcc, callback, Input, Output, State, ctx, MATCH
 
 from utils import (
@@ -21,6 +27,89 @@ from utils import (
 
 # Get base directory
 BASE_DIR = Path(__file__).parent.parent
+
+# ============================================================
+# Server-side DataFrame Cache
+# Stores large DataFrames on disk using Parquet format (10-100x faster than JSON)
+# dcc.Store only holds a reference ID, not the actual data
+# ============================================================
+CACHE_DIR = Path(tempfile.gettempdir()) / "dash_df_cache"
+CACHE_DIR.mkdir(exist_ok=True)
+
+# Clean up cache on exit
+def _cleanup_cache():
+    if CACHE_DIR.exists():
+        shutil.rmtree(CACHE_DIR, ignore_errors=True)
+
+atexit.register(_cleanup_cache)
+
+
+def cache_dataframe(df: pd.DataFrame, prefix: str = "df") -> str:
+    """Cache DataFrame to disk and return a reference ID.
+    
+    Uses Parquet format which is 10-100x faster than JSON serialization.
+    
+    Args:
+        df: DataFrame to cache
+        prefix: Prefix for the cache file
+    
+    Returns:
+        Cache ID string to store in dcc.Store
+    """
+    if df is None or df.empty:
+        return None
+    
+    cache_id = f"{prefix}_{uuid.uuid4().hex[:12]}"
+    cache_path = CACHE_DIR / f"{cache_id}.parquet"
+    
+    # Parquet is much faster than JSON for large DataFrames
+    df.to_parquet(cache_path, engine="pyarrow", index=False)
+    
+    return cache_id
+
+
+def load_cached_dataframe(cache_id: Optional[str]) -> pd.DataFrame:
+    """Load DataFrame from cache by ID.
+    
+    Args:
+        cache_id: Cache ID returned by cache_dataframe()
+    
+    Returns:
+        Cached DataFrame or empty DataFrame if not found
+    """
+    if not cache_id:
+        return pd.DataFrame()
+    
+    cache_path = CACHE_DIR / f"{cache_id}.parquet"
+    
+    if not cache_path.exists():
+        return pd.DataFrame()
+    
+    return pd.read_parquet(cache_path, engine="pyarrow")
+
+
+def df_from_store(store_data: Any) -> pd.DataFrame:
+    """Reconstruct DataFrame from dcc.Store data.
+    
+    Handles:
+    - Cache ID string (new optimized approach for large data)
+    - 'split' format dict (medium datasets)
+    - 'records' format (legacy)
+    """
+    if store_data is None:
+        return pd.DataFrame()
+    
+    # Check if it's a cache ID (string starting with prefix)
+    if isinstance(store_data, str):
+        return load_cached_dataframe(store_data)
+    
+    # Check if it's split format (has 'columns', 'data' keys)
+    if isinstance(store_data, dict) and "columns" in store_data and "data" in store_data:
+        return pd.DataFrame.from_dict(store_data, orient="split")
+    else:
+        # Legacy 'records' format or direct dict
+        return pd.DataFrame(store_data)
+
 
 # Initialize Dash app
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
@@ -199,6 +288,15 @@ app.layout = dbc.Container(
                                                     },
                                                 ),
                                                 html.Div(
+                                                    "Press Enter/Tab after typing the path",
+                                                    style={
+                                                        "marginTop": "8px",
+                                                        "fontSize": "0.85rem",
+                                                        "color": "#88C0D0",
+                                                        "fontStyle": "italic",
+                                                    }
+                                                ),
+                                                html.Div(
                                                     id="directory-status",
                                                     style={
                                                         "marginTop": "12px",
@@ -223,7 +321,7 @@ app.layout = dbc.Container(
             className="mb-4",
         ),
         
-        # Visualize Button and Status Section
+        # Visualize and Reset Buttons Section
         dbc.Row(
             [
                 dbc.Col(
@@ -234,26 +332,58 @@ app.layout = dbc.Container(
                                     [
                                         html.Div(
                                             [
-                                                dbc.Button(
-                                                    "Visualize",
-                                                    id="visualize-button",
-                                                    n_clicks=0,
-                                                    color="primary",
-                                                    size="lg",
-                                                    style={
-                                                        "fontSize": "1.1rem",
-                                                        "fontWeight": "600",
-                                                        "padding": "15px 40px",
-                                                        "width": "100%",
-                                                        "backgroundColor": "#5E81AC",
-                                                        "borderColor": "#5E81AC",
-                                                        "color": "#ECEFF4",
-                                                    },
+                                                dbc.Row(
+                                                    [
+                                                        dbc.Col(
+                                                            dbc.Button(
+                                                                "Visualize",
+                                                                id="visualize-button",
+                                                                n_clicks=0,
+                                                                color="primary",
+                                                                size="lg",
+                                                                style={
+                                                                    "fontSize": "1.1rem",
+                                                                    "fontWeight": "600",
+                                                                    "padding": "15px 40px",
+                                                                    "width": "100%",
+                                                                    "backgroundColor": "#5E81AC",
+                                                                    "borderColor": "#5E81AC",
+                                                                    "color": "#ECEFF4",
+                                                                },
+                                                            ),
+                                                            width=8,
+                                                        ),
+                                                        dbc.Col(
+                                                            dbc.Button(
+                                                                "Reset",
+                                                                id="reset-button",
+                                                                n_clicks=0,
+                                                                color="secondary",
+                                                                size="lg",
+                                                                style={
+                                                                    "fontSize": "1.1rem",
+                                                                    "fontWeight": "600",
+                                                                    "padding": "15px 20px",
+                                                                    "width": "100%",
+                                                                    "backgroundColor": "#BF616A",
+                                                                    "borderColor": "#BF616A",
+                                                                    "color": "#ECEFF4",
+                                                                },
+                                                            ),
+                                                            width=4,
+                                                        ),
+                                                    ],
+                                                    className="g-2",
                                                 ),
                                             ],
                                             style={"marginBottom": "20px"},
                                         ),
-                                        html.Div(id="status-message"),
+                                        dcc.Loading(
+                                            id="loading-status",
+                                            type="circle",
+                                            color="#88C0D0",
+                                            children=html.Div(id="status-message"),
+                                        ),
                                     ],
                                     style={"padding": "25px", "textAlign": "center", "backgroundColor": "#3B4252"},
                                 ),
@@ -296,8 +426,8 @@ app.layout = dbc.Container(
                                     },
                                 ),
                                 dcc.Tab(
-                                    label="⚖️ Comparative Analysis",
-                                    value="comparative-tab",
+                                    label="🔎 Process-Specific Analysis",
+                                    value="process-specific-tab",
                                     style={
                                         "backgroundColor": "#3B4252",
                                         "color": "#ECEFF4",
@@ -313,8 +443,8 @@ app.layout = dbc.Container(
                                     },
                                 ),
                                 dcc.Tab(
-                                    label="🔎 Process Specific",
-                                    value="process-specific-tab",
+                                    label="⚖️ Comparative Analysis",
+                                    value="comparative-tab",
                                     style={
                                         "backgroundColor": "#3B4252",
                                         "color": "#ECEFF4",
@@ -332,9 +462,15 @@ app.layout = dbc.Container(
                             ],
                             style={"marginBottom": "25px"},
                         ),
-                        html.Div(
-                            id="tab-content",
-                            style={"marginTop": "10px"},
+                        dcc.Loading(
+                            id="loading-tab-content",
+                            type="circle",
+                            color="#88C0D0",
+                            children=html.Div(
+                                id="tab-content",
+                                style={"marginTop": "10px"},
+                            ),
+                            style={"minHeight": "200px"},
                         ),
                     ],
                     width=12,
@@ -347,6 +483,7 @@ app.layout = dbc.Container(
         dcc.Store(id="processed-df-store", data=None),  # Store processed dataframe
         dcc.Store(id="original-df-store", data=None),  # Store original dataframe
         dcc.Store(id="process-time-range-store", data=None),  # Store process time range
+        dcc.Store(id="timeseries-filtered-df-store", data=None),  # Store filtered dataframe for Y-axis rescaling
     ],
     style={
         "backgroundColor": "#2E3440",
@@ -404,6 +541,46 @@ def update_directory_status(directory_path):
             style={"color": "#BF616A", "fontWeight": "500"}
         )
 
+# Callback for Reset button - clears all data and resets input
+@app.callback(
+    Output("directory-path-input", "value", allow_duplicate=True),
+    Output("processed-df-store", "data", allow_duplicate=True),
+    Output("original-df-store", "data", allow_duplicate=True),
+    Output("process-time-range-store", "data", allow_duplicate=True),
+    Output("timeseries-filtered-df-store", "data", allow_duplicate=True),
+    Output("pid-display", "children", allow_duplicate=True),
+    Output("device-display", "children", allow_duplicate=True),
+    Output("status-message", "children", allow_duplicate=True),
+    Output("directory-status", "children", allow_duplicate=True),
+    Input("reset-button", "n_clicks"),
+    prevent_initial_call=True,
+)
+def reset_app(n_clicks):
+    """Reset the application to its initial state."""
+    if n_clicks == 0:
+        raise dash.exceptions.PreventUpdate
+    
+    # Return empty/initial values for all outputs
+    return (
+        "",  # Clear directory path input
+        None,  # Clear processed-df-store
+        None,  # Clear original-df-store
+        None,  # Clear process-time-range-store
+        None,  # Clear timeseries-filtered-df-store
+        "process id: N/A",  # Reset pid display
+        "device: N/A",  # Reset device display
+        dbc.Alert(
+            [
+                "Enter a directory path above and click ",
+                html.Strong("Visualize"),
+                " to load and visualize data.",
+            ],
+            color="info",
+            style={"margin": "0"},
+        ),  # Reset status message
+        html.Span("", style={"display": "none"}),  # Clear directory status
+    )
+
 @app.callback(
     Output("pid-display", "children"),
     Output("device-display", "children"),
@@ -459,7 +636,7 @@ def load_and_visualize(n_clicks, directory_path):
             color="danger",
             style={"margin": "0"},
         )
-        return status_msg, None, None, None, None
+        return status_msg, None, None, None
     
     try:
         dir_path = Path(directory_path.strip())
@@ -472,7 +649,7 @@ def load_and_visualize(n_clicks, directory_path):
                 color="danger",
                 style={"margin": "0"},
             )
-            return status_msg, None, None, None, None
+            return status_msg, None, None, None
         
         if not dir_path.is_dir():
             status_msg = dbc.Alert(
@@ -483,7 +660,7 @@ def load_and_visualize(n_clicks, directory_path):
                 color="danger",
                 style={"margin": "0"},
             )
-            return status_msg, None, None, None, None
+            return status_msg, None, None, None
         
         # Find required files
         csv_file = find_files_in_directory(directory_path, ['.csv'])
@@ -499,7 +676,7 @@ def load_and_visualize(n_clicks, directory_path):
                 color="danger",
                 style={"margin": "0"},
             )
-            return status_msg, None, None, None, None
+            return status_msg, None, None, None
         
         # Validate required log file
         if not log_file:
@@ -511,7 +688,7 @@ def load_and_visualize(n_clicks, directory_path):
                 color="danger",
                 style={"margin": "0"},
             )
-            return status_msg, None, None, None, None
+            return status_msg, None, None, None
         
         # Load all data from CSV file
         df_all = load_csv_from_path(csv_file)
@@ -533,13 +710,16 @@ def load_and_visualize(n_clicks, directory_path):
             style={"margin": "0"},
         )
         
-        # Store dataframes as JSON
-        df_processed_json = df_processed.to_dict('records') if not df_processed.empty else None
-        df_all_json = df_all.to_dict('records') if not df_all.empty else None
+        # Use server-side cache for large DataFrames (much faster than JSON in dcc.Store)
+        # Only store cache IDs in dcc.Store, not the actual data
+        # Parquet format is 10-100x faster than JSON for large datasets
+        processed_cache_id = cache_dataframe(df_processed, prefix="processed")
+        original_cache_id = cache_dataframe(df_all, prefix="original")
+        
         process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
                              "end": proc_end.isoformat() if proc_end else None}
         
-        return status_msg, df_processed_json, df_all_json, process_time_range
+        return status_msg, processed_cache_id, original_cache_id, process_time_range
         
     except Exception as e:
         status_msg = dbc.Alert(
@@ -551,7 +731,7 @@ def load_and_visualize(n_clicks, directory_path):
             color="danger",
             style={"margin": "0"},
         )
-        return status_msg, None, None, None, None
+        return status_msg, None, None, None
 
 @app.callback(
     Output("tab-content", "children"),
@@ -571,11 +751,12 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
             )
         
         # Convert stored data back to dataframe
-        df_processed = pd.DataFrame(processed_df_data)
+        df_processed = df_from_store(processed_df_data)
         df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
         
-        # Extract base metric names from metric_id for categorization
-        df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
+        # Use pre-computed base_metric if available, otherwise compute it
+        if "base_metric" not in df_processed.columns:
+            df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
         
         # Get unique base metrics to determine available categories
         base_metrics = df_processed["base_metric"].unique()
@@ -687,6 +868,219 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
         )
 
     elif tab_value == "process-specific-tab":
+        # Process-specific tab: 2x2 grid with data truncated to process active period
+        if not original_df_data or not process_time_range:
+            return dbc.Alert(
+                "No data available. Please load data using the Visualize button.",
+                color="info",
+                style={"margin": "0", "fontWeight": "bold"},
+            )
+        
+        proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
+        proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+
+        if proc_start is None or proc_end is None:
+            return dbc.Alert(
+                "Process time range not available.",
+                color="warning",
+                style={"margin": "0", "fontWeight": "bold"},
+            )
+        
+        # Convert stored data back to dataframe
+        df_original = df_from_store(original_df_data)
+        df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
+        
+        # Get unique metrics
+        unique_metrics = sorted(df_original["metric"].unique().tolist())
+        
+        # Create 2x2 grid layout using dbc.Row and dbc.Col
+        # Use column-based layout for filters to keep plot positions constant
+        grid_rows = []
+        for i in range(2):
+            row_children = []
+            for j in range(2):
+                plot_id = {"type": "grid-plot", "index": f"{i}-{j}"}
+                metric_dropdown_id = {"type": "metric-dropdown", "index": f"{i}-{j}"}
+                
+                row_children.append(
+                    dbc.Col(
+                        [
+                            dbc.Card(
+                                [
+                                    dbc.CardBody(
+                                        [
+                                            # Metric dropdown - full width
+                                            html.Div(
+                                                [
+                                                    html.Label(
+                                                        "Metric:",
+                                                        style={
+                                                            "color": "#ECEFF4",
+                                                            "fontSize": "0.9rem",
+                                                            "fontWeight": "500",
+                                                            "marginBottom": "4px",
+                                                        }
+                                                    ),
+                                                    dcc.Dropdown(
+                                                        id=metric_dropdown_id,
+                                                        options=[{"label": m, "value": m} for m in unique_metrics],
+                                                        placeholder="Select metric",
+                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                        className="dark-dropdown",
+                                                        clearable=True,
+                                                    ),
+                                                ],
+                                                style={"marginBottom": "8px"}
+                                            ),
+                                            # Filter dropdowns in a single compact row
+                                            # Fixed height container to keep plot position constant
+                                            html.Div(
+                                                [
+                                                    dbc.Row(
+                                                        [
+                                                            # Resource Kind
+                                                            dbc.Col(
+                                                                html.Div(
+                                                                    [
+                                                                        html.Label("R.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                        dcc.Dropdown(
+                                                                            id={"type": "resource-kind-dropdown", "index": f"{i}-{j}"},
+                                                                            options=[],
+                                                                            value=None,
+                                                                            placeholder="-",
+                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                            className="dark-dropdown compact-dropdown",
+                                                                            clearable=False,
+                                                                        ),
+                                                                    ],
+                                                                    id={"type": "rk-container", "index": f"{i}-{j}"},
+                                                                    style={"visibility": "hidden"},
+                                                                ),
+                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                            ),
+                                                            # Resource ID
+                                                            dbc.Col(
+                                                                html.Div(
+                                                                    [
+                                                                        html.Label("R.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                        dcc.Dropdown(
+                                                                            id={"type": "resource-id-dropdown", "index": f"{i}-{j}"},
+                                                                            options=[],
+                                                                            value=None,
+                                                                            placeholder="-",
+                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                            className="dark-dropdown compact-dropdown",
+                                                                            clearable=False,
+                                                                        ),
+                                                                    ],
+                                                                    id={"type": "rid-container", "index": f"{i}-{j}"},
+                                                                    style={"visibility": "hidden"},
+                                                                ),
+                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                            ),
+                                                            # Consumer Kind
+                                                            dbc.Col(
+                                                                html.Div(
+                                                                    [
+                                                                        html.Label("C.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                        dcc.Dropdown(
+                                                                            id={"type": "consumer-kind-dropdown", "index": f"{i}-{j}"},
+                                                                            options=[],
+                                                                            value=None,
+                                                                            placeholder="-",
+                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                            className="dark-dropdown compact-dropdown",
+                                                                            clearable=False,
+                                                                        ),
+                                                                    ],
+                                                                    id={"type": "ck-container", "index": f"{i}-{j}"},
+                                                                    style={"visibility": "hidden"},
+                                                                ),
+                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                            ),
+                                                            # Consumer ID
+                                                            dbc.Col(
+                                                                html.Div(
+                                                                    [
+                                                                        html.Label("C.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                        dcc.Dropdown(
+                                                                            id={"type": "consumer-id-dropdown", "index": f"{i}-{j}"},
+                                                                            options=[],
+                                                                            value=None,
+                                                                            placeholder="-",
+                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                            className="dark-dropdown compact-dropdown",
+                                                                            clearable=False,
+                                                                        ),
+                                                                    ],
+                                                                    id={"type": "cid-container", "index": f"{i}-{j}"},
+                                                                    style={"visibility": "hidden"},
+                                                                ),
+                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                            ),
+                                                            # Late Attributes
+                                                            dbc.Col(
+                                                                html.Div(
+                                                                    [
+                                                                        html.Label("Attr", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                        dcc.Dropdown(
+                                                                            id={"type": "late-attr-dropdown", "index": f"{i}-{j}"},
+                                                                            options=[],
+                                                                            value=None,
+                                                                            placeholder="-",
+                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                            className="dark-dropdown compact-dropdown",
+                                                                            clearable=False,
+                                                                        ),
+                                                                    ],
+                                                                    id={"type": "la-container", "index": f"{i}-{j}"},
+                                                                    style={"visibility": "hidden"},
+                                                                ),
+                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                            ),
+                                                        ],
+                                                        className="g-0",
+                                                    ),
+                                                ],
+                                                style={"minHeight": "50px", "marginBottom": "8px"},  # Fixed height for filter area
+                                            ),
+                                            dcc.Graph(id=plot_id, style={"height": "320px"}),
+                                            # Download CSV button
+                                            html.Div(
+                                                [
+                                                    dbc.Button(
+                                                        "📥 Download CSV",
+                                                        id={"type": "grid-download-btn", "index": f"{i}-{j}"},
+                                                        n_clicks=0,
+                                                        color="primary",
+                                                        size="sm",
+                                                        style={
+                                                            "fontSize": "0.75rem",
+                                                        },
+                                                    ),
+                                                    dcc.Download(id={"type": "grid-download", "index": f"{i}-{j}"}),
+                                                ],
+                                                style={"textAlign": "right", "marginTop": "25px", "paddingTop": "15px"},
+                                            ),
+                                        ],
+                                        style={"padding": "12px", "backgroundColor": "#3B4252"},
+                                    ),
+                                ],
+                                color="dark",
+                                inverse=True,
+                                style={"height": "100%", "marginBottom": "10px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+                            ),
+                        ],
+                        width=12,
+                        lg=6,
+                        className="mb-2",
+                    )
+                )
+            grid_rows.append(dbc.Row(row_children, className="mb-2"))
+        
+        return html.Div(grid_rows)
+
+    else:  # Comparative tab: X-Y metric relationship plot
         if not processed_df_data or not process_time_range:
             return dbc.Alert(
                 "No data available. Please load data using the Visualize button.",
@@ -694,7 +1088,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                 style={"margin": "0", "fontWeight": "bold"},
             )
 
-        df_processed = pd.DataFrame(processed_df_data)
+        df_processed = df_from_store(processed_df_data)
         df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
 
         proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
@@ -708,7 +1102,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
             )
 
         # Only allow choosing metrics that actually have samples inside the process window
-        df_process_level= df_processed[(df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)].copy()
+        df_process_level = df_processed[(df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)].copy()
 
         if df_process_level.empty:
             return dbc.Alert(
@@ -761,6 +1155,21 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                             ]
                         ),
                         dcc.Graph(id="ps-xy-graph", style={"height": "70vh"}),
+                        # Download CSV button for X-Y plot
+                        html.Div(
+                            [
+                                dbc.Button(
+                                    "📥 Download CSV",
+                                    id="xy-download-btn",
+                                    n_clicks=0,
+                                    color="primary",
+                                    size="sm",
+                                    style={"marginTop": "10px"},
+                                ),
+                                dcc.Download(id="xy-download"),
+                            ],
+                            style={"textAlign": "right", "marginTop": "5px"},
+                        ),
                     ],
                     style={"padding": "25px", "backgroundColor": "#3B4252"},
                 )
@@ -769,207 +1178,6 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
             inverse=True,
             style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
         )
-
-    else:  # Second tab: Comparative visualization (2x2 grid)
-        if not original_df_data:
-            return dbc.Alert(
-                "No data available. Please load data using the Visualize button.",
-                color="info",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-        
-        # Convert stored data back to dataframe
-        df_original = pd.DataFrame(original_df_data)
-        df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
-        
-        # Get unique metrics
-        unique_metrics = sorted(df_original["metric"].unique().tolist())
-        
-        # Create 2x2 grid layout using dbc.Row and dbc.Col
-        grid_rows = []
-        for i in range(2):
-            row_children = []
-            for j in range(2):
-                plot_id = {"type": "grid-plot", "index": f"{i}-{j}"}
-                metric_dropdown_id = {"type": "metric-dropdown", "index": f"{i}-{j}"}
-                
-                row_children.append(
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            html.Div(
-                                                [
-                                                    html.Label(
-                                                        "Metric:",
-                                                        style={
-                                                            "color": "#ECEFF4",
-                                                            "marginRight": "10px",
-                                                            "fontSize": "0.95rem",
-                                                            "fontWeight": "500",
-                                                        }
-                                                    ),
-                                                    dcc.Dropdown(
-                                                        id=metric_dropdown_id,
-                                                        options=[{"label": m, "value": m} for m in unique_metrics],
-                                                        placeholder="Select metric",
-                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                        className="dark-dropdown",
-                                                        clearable=True,
-                                                    ),
-                                                    html.Div(
-                                                        [
-                                                            # Resource Kind
-                                                            html.Div(
-                                                                [
-                                                                    html.Label(
-                                                                        "Resource Kind:",
-                                                                        style={
-                                                                            "color": "#ECEFF4",
-                                                                            "marginRight": "8px",
-                                                                            "fontSize": "0.85rem",
-                                                                            "fontWeight": "500",
-                                                                        }
-                                                                    ),
-                                                                    dcc.Dropdown(
-                                                                        id={"type": "resource-kind-dropdown", "index": f"{i}-{j}"},
-                                                                        options=[],
-                                                                        value=None,
-                                                                        placeholder="Select resource kind",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                                        className="dark-dropdown",
-                                                                        clearable=False,
-                                                                    ),
-                                                                ],
-                                                                id={"type": "rk-container", "index": f"{i}-{j}"},
-                                                                style={"display": "none", "marginBottom": "10px"},
-                                                            ),
-                                                            # Resource ID
-                                                            html.Div(
-                                                                [
-                                                                    html.Label(
-                                                                        "Resource ID:",
-                                                                        style={
-                                                                            "color": "#ECEFF4",
-                                                                            "marginRight": "8px",
-                                                                            "fontSize": "0.85rem",
-                                                                            "fontWeight": "500",
-                                                                        }
-                                                                    ),
-                                                                    dcc.Dropdown(
-                                                                        id={"type": "resource-id-dropdown", "index": f"{i}-{j}"},
-                                                                        options=[],
-                                                                        value=None,
-                                                                        placeholder="Select resource ID",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                                        className="dark-dropdown",
-                                                                        clearable=False,
-                                                                    ),
-                                                                ],
-                                                                id={"type": "rid-container", "index": f"{i}-{j}"},
-                                                                style={"display": "none", "marginBottom": "10px"},
-                                                            ),
-                                                            # Consumer Kind
-                                                            html.Div(
-                                                                [
-                                                                    html.Label(
-                                                                        "Consumer Kind:",
-                                                                        style={
-                                                                            "color": "#ECEFF4",
-                                                                            "marginRight": "8px",
-                                                                            "fontSize": "0.85rem",
-                                                                            "fontWeight": "500",
-                                                                        }
-                                                                    ),
-                                                                    dcc.Dropdown(
-                                                                        id={"type": "consumer-kind-dropdown", "index": f"{i}-{j}"},
-                                                                        options=[],
-                                                                        value=None,
-                                                                        placeholder="Select consumer kind",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                                        className="dark-dropdown",
-                                                                        clearable=False,
-                                                                    ),
-                                                                ],
-                                                                id={"type": "ck-container", "index": f"{i}-{j}"},
-                                                                style={"display": "none", "marginBottom": "10px"},
-                                                            ),
-                                                            # Consumer ID
-                                                            html.Div(
-                                                                [
-                                                                    html.Label(
-                                                                        "Consumer ID:",
-                                                                        style={
-                                                                            "color": "#ECEFF4",
-                                                                            "marginRight": "8px",
-                                                                            "fontSize": "0.85rem",
-                                                                            "fontWeight": "500",
-                                                                        }
-                                                                    ),
-                                                                    dcc.Dropdown(
-                                                                        id={"type": "consumer-id-dropdown", "index": f"{i}-{j}"},
-                                                                        options=[],
-                                                                        value=None,
-                                                                        placeholder="Select consumer ID",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                                        className="dark-dropdown",
-                                                                        clearable=False,
-                                                                    ),
-                                                                ],
-                                                                id={"type": "cid-container", "index": f"{i}-{j}"},
-                                                                style={"display": "none", "marginBottom": "10px"},
-                                                            ),
-                                                            # Late Attributes
-                                                            html.Div(
-                                                                [
-                                                                    html.Label(
-                                                                        "Late Attributes:",
-                                                                        style={
-                                                                            "color": "#ECEFF4",
-                                                                            "marginRight": "8px",
-                                                                            "fontSize": "0.85rem",
-                                                                            "fontWeight": "500",
-                                                                        }
-                                                                    ),
-                                                                    dcc.Dropdown(
-                                                                        id={"type": "late-attr-dropdown", "index": f"{i}-{j}"},
-                                                                        options=[],
-                                                                        value=None,
-                                                                        placeholder="Select late attributes",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                                        className="dark-dropdown",
-                                                                        clearable=False,
-                                                                    ),
-                                                                ],
-                                                                id={"type": "la-container", "index": f"{i}-{j}"},
-                                                                style={"display": "none", "marginBottom": "10px"},
-                                                            ),
-                                                        ],
-                                                        style={"marginTop": "15px"},
-                                                    ),
-                                                ],
-                                                style={"marginBottom": "15px"}
-                                            ),
-                                            dcc.Graph(id=plot_id, style={"height": "350px"}),
-                                        ],
-                                        style={"padding": "20px", "backgroundColor": "#3B4252"},
-                                    ),
-                                ],
-                                color="dark",
-                                inverse=True,
-                                style={"height": "100%", "marginBottom": "20px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
-                            ),
-                        ],
-                        width=12,
-                        lg=6,
-                        className="mb-3",
-                    )
-                )
-            grid_rows.append(dbc.Row(row_children, className="mb-3"))
-        
-        return html.Div(grid_rows)
 
 # Callback to show/hide CPU core selector for kernel_cpu_time and update dropdown options
 @app.callback(
@@ -988,8 +1196,10 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     if selected_category != "kernel_cpu_time" or not processed_df_data:
         return default_children, default_options, default_style
     
-    df_processed = pd.DataFrame(processed_df_data)
-    df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
+    df_processed = df_from_store(processed_df_data)
+    # Use pre-computed base_metric if available, otherwise compute it
+    if "base_metric" not in df_processed.columns:
+        df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
     kernel_metrics = df_processed[df_processed["base_metric"] == "kernel_cpu_time_ms"]
     
     if kernel_metrics.empty:
@@ -1058,21 +1268,23 @@ def update_cpu_core_selector(selected_category, processed_df_data):
 )
 def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
     """Update filter dropdowns for a single plot using MATCH"""
-    hide = {"display": "none", "marginBottom": "10px"}
-    show = {"display": "block", "marginBottom": "10px"}
+    # Use visibility instead of display to maintain fixed layout space
+    hide = {"visibility": "hidden"}
+    show = {"visibility": "visible"}
 
     if not original_df_data or not metric:
         return (hide, [], None, hide, [], None, hide, [], None, hide, [], None, hide, [], None)
 
-    df = pd.DataFrame(original_df_data)
+    df = df_from_store(original_df_data)
     dfm = df[df["metric"] == metric].copy()
 
     # Normalize to strings for stable matching
-    dfm["rk"] = dfm["resource_kind"].fillna("").astype(str).str.strip()
-    dfm["rid"] = dfm["resource_id"].fillna("").astype(str).str.strip()
-    dfm["ck"] = dfm["consumer_kind"].fillna("").astype(str).str.strip()
-    dfm["cid"] = dfm["consumer_id"].fillna("").astype(str).str.strip()
-    dfm["la"] = dfm["__late_attributes"].fillna("").astype(str).str.strip()
+    # Convert to string first (handles categorical columns), then replace "nan" with empty string
+    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
+    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
+    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
+    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
+    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
 
     rk = norm(rk)
     rid = norm(rid)
@@ -1179,16 +1391,17 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
         fig.update_layout(title=dict(text="Select a metric", x=0.5))
         return fig
 
-    df = pd.DataFrame(original_df_data)
+    df = df_from_store(original_df_data)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     dfm = df[df["metric"] == metric].copy()
 
     # Same string normalization as options callback
-    dfm["rk"] = dfm["resource_kind"].fillna("").astype(str).str.strip()
-    dfm["rid"] = dfm["resource_id"].fillna("").astype(str).str.strip()
-    dfm["ck"] = dfm["consumer_kind"].fillna("").astype(str).str.strip()
-    dfm["cid"] = dfm["consumer_id"].fillna("").astype(str).str.strip()
-    dfm["la"] = dfm["__late_attributes"].fillna("").astype(str).str.strip()
+    # Convert to string first (handles categorical columns), then replace "nan" with empty string
+    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
+    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
+    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
+    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
+    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
 
     rk = norm(rk)
     rid = norm(rid)
@@ -1245,28 +1458,24 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
         )
         return fig
 
-    # Process active shading
+    # Get process time range and truncate data to process active period only
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range and process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range and process_time_range.get("end") else None
 
     dff = dff.sort_values("timestamp")
+    
+    # Truncate data to process active period for process-specific view
+    if proc_start and proc_end:
+        dff = dff[(dff["timestamp"] >= proc_start) & (dff["timestamp"] <= proc_end)]
+    
+    if dff.empty:
+        fig.update_layout(title=dict(text="No data during process active period", x=0.5))
+        return fig
+    
     y_min, y_max = dff["value"].min(), dff["value"].max()
     y_range = (y_max - y_min) if y_max != y_min else (abs(y_max) if y_max != 0 else 1)
     y_pad = 0.1 * y_range
     y_bottom, y_top = y_min - y_pad, y_max + y_pad
-
-    if proc_start and proc_end:
-        fig.add_trace(go.Scatter(
-            x=[proc_start, proc_start, proc_end, proc_end, proc_start],
-            y=[y_bottom, y_top, y_top, y_bottom, y_bottom],
-            mode="lines",
-            fill="toself",
-            fillcolor="rgba(136, 192, 208, 0.12)",
-            line=dict(width=0),
-            name="Process Active",
-            showlegend=True,
-            hoverinfo="skip",
-        ))
 
     colors = get_color_palette(100)
     idx_str = my_id.get("index", "0-0")
@@ -1282,9 +1491,10 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
     fig.add_trace(go.Scatter(
         x=dff["timestamp"],
         y=dff["value"],
-        mode="lines",
+        mode="lines+markers",
         name=metric,
         line=dict(color=color, width=2),
+        marker=dict(color=color, size=6, symbol="circle"),
         fill="tozeroy",
         fillcolor=rgba_fill,
         hovertemplate=f"<b>{metric}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
@@ -1292,24 +1502,19 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
 
     fig.update_layout(
         height=350,
-        title=dict(text=metric.replace("_", " "), x=0.5, font=dict(size=14)),
-        hovermode="x unified",
+        title=dict(text=metric.replace("_", " ") + " (Process Active Period)", x=0.5, font=dict(size=14)),
+        hovermode="closest",
         margin=dict(l=50, r=30, t=50, b=40),
         xaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)"),
         yaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)", title="Value"),
-        showlegend=True,
-        legend=dict(
-            bgcolor="rgba(46, 52, 64, 0.8)",
-            bordercolor="rgba(136, 192, 208, 0.3)",
-            borderwidth=1,
-            font=dict(color="#d8dee9"),
-        ),
+        showlegend=False,
     )
     return fig
 
 # Callback to update time series plot based on category and CPU core selection
 @app.callback(
     Output("timeseries-plot-container", "children"),
+    Output("timeseries-filtered-df-store", "data"),
     Input("metric-category-dropdown", "value"),
     Input("cpu-core-dropdown", "value"),
     State("processed-df-store", "data"),
@@ -1318,13 +1523,13 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
 )
 def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert("No data available.", color="info", style={"margin": "0", "fontWeight": "bold"})
+        return dbc.Alert("No data available.", color="info", style={"margin": "0", "fontWeight": "bold"}), None
     
     if not selected_category:
-        return dbc.Alert("Please select a metric category.", color="info", style={"margin": "0", "fontWeight": "bold"})
+        return dbc.Alert("Please select a metric category.", color="info", style={"margin": "0", "fontWeight": "bold"}), None
     
     # Convert stored data back to dataframe
-    df_processed = pd.DataFrame(processed_df_data)
+    df_processed = df_from_store(processed_df_data)
     df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
     
     # Get full time range from ALL data (before filtering) to fix x-axis
@@ -1332,8 +1537,9 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
     full_time_max = df_processed["timestamp"].max()
     full_time_range = (full_time_min, full_time_max)
     
-    # Extract base metric names
-    df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
+    # Use pre-computed base_metric if available, otherwise compute it
+    if "base_metric" not in df_processed.columns:
+        df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
     
     # Filter based on category
     if selected_category == "energy":
@@ -1349,7 +1555,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
     elif selected_category == "kernel_cpu_time":
         # Require CPU core selection for kernel_cpu_time (too many cores to show all)
         if not selected_cpu_core:
-            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", style={"margin": "0", "fontWeight": "bold"})
+            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
         
         # Filter for kernel_cpu_time_ms
         df_filtered = df_processed[df_processed["base_metric"] == "kernel_cpu_time_ms"]
@@ -1384,7 +1590,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
         df_filtered = pd.DataFrame()
     
     if df_filtered.empty:
-        return dbc.Alert("No data available for the selected category.", color="info", style={"margin": "0", "fontWeight": "bold"})
+        return dbc.Alert("No data available for the selected category.", color="info", style={"margin": "0", "fontWeight": "bold"}), None
     
     # Get process time range for gray highlight
     proc_start = None
@@ -1394,12 +1600,25 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
     if process_time_range and process_time_range.get("end"):
         proc_end = pd.to_datetime(process_time_range["end"])
     
+    # Get the metric order BEFORE creating the figure (this order determines subplot assignment)
+    metric_order = df_filtered["metric_id"].unique().tolist()
+    
     # Create figure with filtered time series, but with full time range for x-axis
-    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range)
+    # Pass category to set appropriate Y-axis label
+    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category)
+    
+    # Store filtered data for Y-axis rescaling callback
+    # Include metric_order to ensure consistent yaxis mapping
+    df_for_store = df_filtered[["metric_id", "timestamp", "value"]].copy()
+    filtered_df_json = {
+        "data": df_for_store.to_dict('records') if not df_for_store.empty else None,
+        "metric_order": metric_order  # Preserve the exact order used when creating figure
+    }
     
     # Wrap the graph in a div to ensure proper scrolling and full width
-    return html.Div(
+    graph_component = html.Div(
         dcc.Graph(
+            id="timeseries-graph",
             figure=fig,
             style={
                 "height": "100%",
@@ -1421,8 +1640,138 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
             "alignItems": "flex-start",
         },
     )
-
     
+    return graph_component, filtered_df_json
+
+
+# Callback to update Y-axis ranges when zooming on X-axis
+# This rescales each subplot's Y-axis independently to fit its visible data
+@app.callback(
+    Output("timeseries-graph", "figure", allow_duplicate=True),
+    Input("timeseries-graph", "relayoutData"),
+    State("timeseries-graph", "figure"),
+    State("timeseries-filtered-df-store", "data"),
+    prevent_initial_call=True,
+)
+def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store):
+    """Update Y-axis ranges when X-axis is zoomed to show visible data range.
+    
+    Each subplot is updated independently based on its own visible data.
+    With independent X-axes, only the subplot that was zoomed gets its Y-axis updated.
+    """
+    if not relayout_data or not current_figure or not filtered_df_store:
+        return current_figure
+    
+    # Extract data and metric order from the store
+    if not isinstance(filtered_df_store, dict) or "data" not in filtered_df_store:
+        return current_figure
+    
+    data_records = filtered_df_store.get("data")
+    metric_order = filtered_df_store.get("metric_order", [])
+    
+    if not data_records or not metric_order:
+        return current_figure
+    
+    # Check for autorange resets (double-click to reset)
+    for key in relayout_data:
+        if 'autorange' in key or 'autosize' in key:
+            # User double-clicked to reset - return current figure, Plotly handles reset
+            return current_figure
+    
+    # Find all X-axis range changes in relayoutData
+    # With independent X-axes, each subplot has its own xaxis:
+    # - xaxis (row 1, subplot index 0)
+    # - xaxis2 (row 2, subplot index 1)
+    # - xaxis3 (row 3, subplot index 2)
+    # etc.
+    
+    # Collect all changed X-axis ranges and their corresponding subplot indices
+    xaxis_changes = {}  # Maps subplot_index -> (x_min, x_max)
+    
+    for key in relayout_data:
+        if 'xaxis' in key and '.range[0]' in key:
+            # Extract axis name (e.g., "xaxis", "xaxis2", "xaxis3")
+            axis_name = key.replace('.range[0]', '')
+            range_0_key = f"{axis_name}.range[0]"
+            range_1_key = f"{axis_name}.range[1]"
+            
+            if range_0_key in relayout_data and range_1_key in relayout_data:
+                # Determine subplot index from axis name
+                # xaxis -> index 0, xaxis2 -> index 1, xaxis3 -> index 2, etc.
+                if axis_name == "xaxis":
+                    subplot_idx = 0
+                else:
+                    try:
+                        subplot_idx = int(axis_name.replace("xaxis", "")) - 1
+                    except ValueError:
+                        continue
+                
+                x_min = pd.to_datetime(relayout_data[range_0_key])
+                x_max = pd.to_datetime(relayout_data[range_1_key])
+                xaxis_changes[subplot_idx] = (x_min, x_max)
+    
+    if not xaxis_changes:
+        return current_figure
+    
+    # Load filtered data
+    df = pd.DataFrame(data_records)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df_tz = df["timestamp"].dt.tz
+    
+    # Deep copy the figure to avoid modifying shared nested dicts
+    updated_figure = copy.deepcopy(current_figure)
+    layout = updated_figure.get("layout", {})
+    
+    # Update Y-axis only for subplots that had their X-axis changed
+    for subplot_idx, (x_min, x_max) in xaxis_changes.items():
+        if subplot_idx >= len(metric_order):
+            continue
+        
+        metric_id = metric_order[subplot_idx]
+        
+        # Ensure timezone compatibility
+        if df_tz is not None:
+            if x_min.tz is None:
+                x_min = x_min.tz_localize(df_tz)
+            if x_max.tz is None:
+                x_max = x_max.tz_localize(df_tz)
+        else:
+            if x_min.tz is not None:
+                x_min = x_min.tz_convert(None) if hasattr(x_min, 'tz_convert') else x_min.replace(tzinfo=None)
+            if x_max.tz is not None:
+                x_max = x_max.tz_convert(None) if hasattr(x_max, 'tz_convert') else x_max.replace(tzinfo=None)
+        
+        # Filter data for this specific metric and visible X range
+        metric_data = df[df["metric_id"] == metric_id]
+        metric_visible = metric_data[(metric_data["timestamp"] >= x_min) & (metric_data["timestamp"] <= x_max)]
+        
+        if metric_visible.empty:
+            continue
+        
+        # Calculate Y range for this metric based on visible data
+        y_min_val = metric_visible["value"].min()
+        y_max_val = metric_visible["value"].max()
+        y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
+        y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
+        
+        # Ensure min < max
+        calc_min = y_min_val - y_padding
+        calc_max = y_max_val + y_padding
+        if calc_min >= calc_max:
+            calc_min = y_min_val - 0.1 if y_min_val != 0 else -0.1
+            calc_max = y_max_val + 0.1 if y_max_val != 0 else 0.1
+        
+        # Update this subplot's y-axis
+        # yaxis for first subplot (idx=0), yaxis2 for second (idx=1), etc.
+        yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+        
+        if yaxis_key in layout:
+            layout[yaxis_key]["range"] = [calc_min, calc_max]
+            layout[yaxis_key]["autorange"] = False
+    
+    updated_figure["layout"] = layout
+    return updated_figure
+
 
 @app.callback(
     Output("ps-xy-graph", "figure"),
@@ -1445,7 +1794,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         fig.update_layout(title=dict(text="Select X and Y metric_id", x=0.5))
         return fig
 
-    dfp = pd.DataFrame(processed_df_data)
+    dfp = df_from_store(processed_df_data)
     dfp["timestamp"] = pd.to_datetime(dfp["timestamp"])
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
@@ -1464,8 +1813,9 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         fig.update_layout(title=dict(text="No samples for one (or both) metrics in process window", x=0.5))
         return fig
 
-    dfx = dfx.sort_values("timestamp")
-    dfy = dfy.sort_values("timestamp")
+    # Sort by timestamp and reset index - critical for merge_asof to work correctly
+    dfx = dfx.sort_values("timestamp").reset_index(drop=True)
+    dfy = dfy.sort_values("timestamp").reset_index(drop=True)
 
     # Auto tolerance for asof matching: ~2x the larger median sampling interval
     dx = dfx["timestamp"].diff().median()
@@ -1483,8 +1833,9 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         direction="nearest",
         tolerance=tol,
     ).dropna(subset=["y"])
-    dfxy = dfxy.sort_values("timestamp")
-    print(dfxy)
+    
+    # Sort by timestamp and reset index 
+    dfxy = dfxy.sort_values("timestamp").reset_index(drop=True)
 
     if dfxy.empty:
         fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
@@ -1496,7 +1847,6 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
             x=dfxy["x"],
             y=dfxy["y"],
             mode="lines+markers",
-            name=f"{y_metric_id} vs {x_metric_id}",
             hovertemplate=(
                 "<b>%{fullData.name}</b><br>"
                 "t: %{customdata|%H:%M:%S.%L}<br>"
@@ -1513,6 +1863,154 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         yaxis=dict(title=str(y_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
     )
     return fig
+
+
+# Callback to download CSV for grid plots (Process-specific panel)
+@app.callback(
+    Output({"type": "grid-download", "index": MATCH}, "data"),
+    Input({"type": "grid-download-btn", "index": MATCH}, "n_clicks"),
+    State({"type": "metric-dropdown", "index": MATCH}, "value"),
+    State({"type": "resource-kind-dropdown", "index": MATCH}, "value"),
+    State({"type": "resource-id-dropdown", "index": MATCH}, "value"),
+    State({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
+    State({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
+    State({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    State("original-df-store", "data"),
+    State("process-time-range-store", "data"),
+    prevent_initial_call=True,
+)
+def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, process_time_range):
+    """Generate and download CSV for a specific grid plot."""
+    if not n_clicks or not original_df_data or not metric:
+        return None
+    
+    df_original = df_from_store(original_df_data)
+    df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
+    
+    # Filter by metric (original df uses "metric" column, not "metric_id")
+    dfm = df_original[df_original["metric"] == metric].copy()
+    
+    # Create normalized columns for filtering (same as update_filters_match)
+    # Convert to string first (handles categorical columns), then replace "nan" with empty string
+    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
+    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
+    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
+    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
+    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
+    
+    # Normalize filter values
+    def norm_val(v):
+        return str(v).strip() if v else ""
+    
+    # Apply the same filters as the plot
+    if rk:
+        dfm = dfm[dfm["rk"] == norm_val(rk)]
+    if rid:
+        dfm = dfm[dfm["rid"] == norm_val(rid)]
+    if ck:
+        dfm = dfm[dfm["ck"] == norm_val(ck)]
+    if cid:
+        dfm = dfm[dfm["cid"] == norm_val(cid)]
+    if la:
+        dfm = dfm[dfm["la"] == norm_val(la)]
+    
+    # Truncate to process window
+    if process_time_range:
+        proc_start = pd.to_datetime(process_time_range.get("start"))
+        proc_end = pd.to_datetime(process_time_range.get("end"))
+        if proc_start and proc_end:
+            dfm = dfm[(dfm["timestamp"] >= proc_start) & (dfm["timestamp"] <= proc_end)]
+    
+    if dfm.empty:
+        return None
+    
+    # Sort by timestamp
+    dfm = dfm.sort_values("timestamp")
+    
+    # Select relevant columns for export (use original column names)
+    export_cols = ["timestamp", "metric", "value"]
+    # Add filter columns if they exist and have meaningful data
+    for orig_col in ["resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]:
+        if orig_col in dfm.columns and dfm[orig_col].notna().any():
+            export_cols.append(orig_col)
+    
+    df_export = dfm[export_cols].copy()
+    
+    # Generate filename (sanitize metric name)
+    safe_metric = "".join(c if c.isalnum() or c in "._-" else "_" for c in metric)
+    filename = f"{safe_metric}_process_data.csv"
+    
+    return dcc.send_data_frame(df_export.to_csv, filename, index=False)
+
+
+# Callback to download CSV for X-Y plot (Comparative panel)
+@app.callback(
+    Output("xy-download", "data"),
+    Input("xy-download-btn", "n_clicks"),
+    State("ps-xmetric-dropdown", "value"),
+    State("ps-ymetric-dropdown", "value"),
+    State("processed-df-store", "data"),
+    State("process-time-range-store", "data"),
+    prevent_initial_call=True,
+)
+def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, process_time_range):
+    """Generate and download CSV for the X-Y comparative plot."""
+    if not n_clicks or not processed_df_data or not x_metric_id or not y_metric_id:
+        return None
+    
+    dfp = df_from_store(processed_df_data)
+    dfp["timestamp"] = pd.to_datetime(dfp["timestamp"])
+    
+    proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None
+    
+    if proc_start is None or proc_end is None:
+        return None
+    
+    # Truncate to process window
+    dfw = dfp[(dfp["timestamp"] >= proc_start) & (dfp["timestamp"] <= proc_end)].copy()
+    
+    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
+    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
+    
+    if dfx.empty or dfy.empty:
+        return None
+    
+    # Sort by timestamp and reset index
+    dfx = dfx.sort_values("timestamp").reset_index(drop=True)
+    dfy = dfy.sort_values("timestamp").reset_index(drop=True)
+    
+    # Auto tolerance for asof matching
+    dx = dfx["timestamp"].diff().median()
+    dy = dfy["timestamp"].diff().median()
+    tol = None
+    if pd.notna(dx) or pd.notna(dy):
+        base = max([v for v in [dx, dy] if pd.notna(v)], default=pd.Timedelta(milliseconds=0))
+        tol = base * 2 if base > pd.Timedelta(0) else pd.Timedelta(seconds=1)
+    
+    # Align metrics in time
+    dfxy = pd.merge_asof(
+        dfx,
+        dfy,
+        on="timestamp",
+        direction="nearest",
+        tolerance=tol,
+    ).dropna(subset=["y"])
+    
+    dfxy = dfxy.sort_values("timestamp").reset_index(drop=True)
+    
+    if dfxy.empty:
+        return None
+    
+    # Rename columns for clarity
+    dfxy = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
+    
+    # Generate filename
+    filename = f"xy_{x_metric_id}_vs_{y_metric_id}.csv"
+    # Sanitize filename (remove special characters)
+    filename = "".join(c if c.isalnum() or c in "._-" else "_" for c in filename)
+    
+    return dcc.send_data_frame(dfxy.to_csv, filename, index=False)
 
 
 if __name__ == "__main__":

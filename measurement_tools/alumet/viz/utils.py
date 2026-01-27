@@ -333,13 +333,16 @@ def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) 
     Generate tick values and formatted tick text for byte-valued axes.
     
     Args:
-        y_min: Minimum y value in bytes
+        y_min: Minimum y value in bytes (will be clamped to 0 if negative)
         y_max: Maximum y value in bytes
         num_ticks: Approximate number of ticks to generate
     
     Returns:
         Tuple of (tickvals, ticktext) lists for Plotly axis configuration
     """
+    # Ensure y_min is not negative (memory can't be negative)
+    y_min = max(0, y_min)
+    
     # Handle edge cases
     if y_max <= y_min:
         y_max = y_min + 1
@@ -536,7 +539,7 @@ def get_color_palette(n_colors: int) -> List[str]:
     
     return colors[:n_colors]
 
-def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional[pd.Timestamp] = None, proc_end: Optional[pd.Timestamp] = None, full_time_range: Optional[tuple] = None, category: Optional[str] = None) -> go.Figure:
+def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional[pd.Timestamp] = None, proc_end: Optional[pd.Timestamp] = None, full_time_range: Optional[tuple] = None, category: Optional[str] = None, share_yaxis: bool = False) -> go.Figure:
     """Create all time series as scrollable subplots.
     
     Args:
@@ -545,6 +548,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         proc_end: Process end time for gray highlight
         full_time_range: Tuple of (min_time, max_time) for full measurement range to fix x-axis
         category: Metric category ("energy", "memory", "kernel_cpu_time", "miscellaneous") to set appropriate Y-axis label
+        share_yaxis: If True, all subplots share the same Y-axis range for easier comparison
     """
     if df_processed.empty:
         return go.Figure()
@@ -572,11 +576,11 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     vertical_spacing = 0.03 if n_metrics > 1 else 0.05  
     
     # Create subplots with formatted titles
-    # Using shared_xaxes=False so each subplot can be zoomed independently
+    # Using shared_xaxes=True so zooming one subplot zooms all others to the same time region
     formatted_titles = [_format_metric_title(metric_id) for metric_id in unique_metrics]
     fig = make_subplots(
         rows=n_metrics, cols=1,
-        shared_xaxes=False,
+        shared_xaxes=True,
         vertical_spacing=vertical_spacing,
         subplot_titles=[f"<b>{title}</b>" for title in formatted_titles],
     )
@@ -584,10 +588,13 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     # Pre-calculate y-axis ranges for each metric using vectorized groupby (much faster than loop)
     y_stats = df_processed.groupby("metric_id")["value"].agg(["min", "max"])
     
+    # Check if this is a memory category
+    is_memory_category = category == "memory"
+    
     y_ranges = {}
     for metric_id in unique_metrics:
         if metric_id not in y_stats.index:
-            y_ranges[metric_id] = {"min": -1, "max": 1}
+            y_ranges[metric_id] = {"min": 0 if is_memory_category else -1, "max": 1}
             continue
         
         y_min = y_stats.loc[metric_id, "min"]
@@ -602,17 +609,36 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
             calculated_min = y_min - 0.1 if y_min != 0 else -0.1
             calculated_max = y_max + 0.1 if y_max != 0 else 0.1
         
+        # For memory metrics, ensure minimum is not negative
+        if is_memory_category:
+            calculated_min = max(0, calculated_min)
+        
         y_ranges[metric_id] = {
             "min": calculated_min,
             "max": calculated_max
         }
+    
+    # If sharing Y-axis, calculate global range across all metrics
+    shared_y_range = None
+    if share_yaxis and y_ranges:
+        global_min = min(r["min"] for r in y_ranges.values())
+        global_max = max(r["max"] for r in y_ranges.values())
+        # For memory metrics, ensure minimum is not negative
+        if is_memory_category:
+            global_min = max(0, global_min)
+        shared_y_range = {"min": global_min, "max": global_max}
 
     # Gray highlighted zone for process active period first
     if proc_start and proc_end:
         for idx in range(1, n_metrics + 1):
             metric_id = unique_metrics[idx-1]
-            y_bottom = y_ranges[metric_id]["min"]
-            y_top = y_ranges[metric_id]["max"]
+            # Use shared y-range if enabled, otherwise use individual metric range
+            if shared_y_range:
+                y_bottom = shared_y_range["min"]
+                y_top = shared_y_range["max"]
+            else:
+                y_bottom = y_ranges[metric_id]["min"]
+                y_top = y_ranges[metric_id]["max"]
             
             fig.add_trace(
                 go.Scatter(
@@ -694,11 +720,11 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         fig.add_trace(ScatterClass(**trace_config), row=idx, col=1)
         
         # Fix x-axis range to full measurement time
-        # With independent X-axes, each subplot has its own axis with visible ticks
+        # With shared_xaxes=True, zooming one subplot zooms all others to the same time region
         fig.update_xaxes(
             range=[x_min, x_max],
             gridcolor="rgba(76, 86, 106, 0.2)",
-            showticklabels=True,  # Show tick labels on each subplot
+            showticklabels=True,  # Show tick labels on each subplot (overrides shared_xaxes default)
             # White dotted spike line on hover - only at data points
             showspikes=True,
             spikemode="across",
@@ -716,18 +742,28 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         else:
             y_axis_label = "Value"
         
-        # Enable autorange for y-axis so it scales dynamically when zooming in on x-axis
+        # Build y-axis configuration
         yaxis_config = dict(
             title_text=y_axis_label,
-            autorange=True,
             fixedrange=False,
             gridcolor="rgba(76, 86, 106, 0.2)",
         )
         
+        # If sharing Y-axis, set fixed range; otherwise use autorange
+        if shared_y_range:
+            yaxis_config["range"] = [shared_y_range["min"], shared_y_range["max"]]
+            yaxis_config["autorange"] = False
+        else:
+            yaxis_config["autorange"] = True
+        
         # For memory metrics, add custom tick formatting
         if category == "memory" and not metric_data.empty:
-            y_min, y_max = metric_data["value"].min(), metric_data["value"].max()
-            tickvals, ticktext = get_bytes_tickvals_ticktext(y_min, y_max, num_ticks=5)
+            if shared_y_range:
+                # Use global range for tick formatting when sharing Y-axis
+                tickvals, ticktext = get_bytes_tickvals_ticktext(shared_y_range["min"], shared_y_range["max"], num_ticks=5)
+            else:
+                y_min, y_max = metric_data["value"].min(), metric_data["value"].max()
+                tickvals, ticktext = get_bytes_tickvals_ticktext(y_min, y_max, num_ticks=5)
             yaxis_config["tickvals"] = tickvals
             yaxis_config["ticktext"] = ticktext
         

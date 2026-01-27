@@ -23,6 +23,10 @@ from utils import (
     norm,
     uniq_str,
     find_files_in_directory,
+    is_cumulative_metric,
+    get_metric_unit,
+    is_memory_metric,
+    get_bytes_tickvals_ticktext,
 )
 
 # Get base directory
@@ -575,7 +579,7 @@ def reset_app(n_clicks):
                 html.Strong("Visualize"),
                 " to load and visualize data.",
             ],
-            color="info",
+            color="warning",
             style={"margin": "0"},
         ),  # Reset status message
         html.Span("", style={"display": "none"}),  # Clear directory status
@@ -618,7 +622,7 @@ def load_and_visualize(n_clicks, directory_path):
                     html.Strong("Visualize"),
                     " to load and visualize data.",
                 ],
-                color="info",
+                color="warning",
                 style={"margin": "0"},
             ),
             None,
@@ -746,7 +750,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
         if not processed_df_data:
             return dbc.Alert(
                 "No data available. Please load data using the Visualize button.",
-                color="info",
+                color="warning",
                 style={"margin": "0", "fontWeight": "bold"},
             )
         
@@ -872,7 +876,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
         if not original_df_data or not process_time_range:
             return dbc.Alert(
                 "No data available. Please load data using the Visualize button.",
-                color="info",
+                color="warning",
                 style={"margin": "0", "fontWeight": "bold"},
             )
         
@@ -1084,7 +1088,7 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
         if not processed_df_data or not process_time_range:
             return dbc.Alert(
                 "No data available. Please load data using the Visualize button.",
-                color="info",
+                color="warning",
                 style={"margin": "0", "fontWeight": "bold"},
             )
 
@@ -1124,7 +1128,10 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                             [
                                 dbc.Col(
                                     [
-                                        html.Label("X metric_id:", style={"color": "#ECEFF4", "fontWeight": "600"}),
+                                        html.Label(
+                                            "Metric 1 (X-axis / Left Y-axis):",
+                                            style={"color": "#ECEFF4", "fontWeight": "600"}
+                                        ),
                                         dcc.Dropdown(
                                             id="ps-xmetric-dropdown",
                                             options=[{"label": m, "value": m} for m in metric_ids],
@@ -1139,7 +1146,10 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                                 ),
                                 dbc.Col(
                                     [
-                                        html.Label("Y metric_id:", style={"color": "#ECEFF4", "fontWeight": "600"}),
+                                        html.Label(
+                                            "Metric 2 (Y-axis / Right Y-axis):",
+                                            style={"color": "#ECEFF4", "fontWeight": "600"}
+                                        ),
                                         dcc.Dropdown(
                                             id="ps-ymetric-dropdown",
                                             options=[{"label": m, "value": m} for m in metric_ids],
@@ -1154,8 +1164,37 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                                 ),
                             ]
                         ),
-                        dcc.Graph(id="ps-xy-graph", style={"height": "70vh"}),
-                        # Download CSV button for X-Y plot
+                        # Visualization mode info and scatter toggle
+                        dbc.Row(
+                            [
+                                dbc.Col(
+                                    [
+                                        html.Div(
+                                            id="comparative-mode-info",
+                                            style={"marginBottom": "10px"},
+                                        ),
+                                    ],
+                                    width=12, lg=8, className="mb-2",
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Checklist(
+                                            id="scatter-toggle",
+                                            options=[{"label": " Show Scatter Plot (X-Y relationship)", "value": "scatter"}],
+                                            value=[],
+                                            inline=True,
+                                            style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                            inputStyle={"marginRight": "8px"},
+                                        ),
+                                    ],
+                                    width=12, lg=4, className="mb-2",
+                                    style={"textAlign": "right"},
+                                ),
+                            ],
+                            className="mb-2",
+                        ),
+                        dcc.Graph(id="ps-xy-graph", style={"height": "65vh"}),
+                        # Download CSV button
                         html.Div(
                             [
                                 dbc.Button(
@@ -1178,6 +1217,44 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
             inverse=True,
             style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
         )
+
+# Callback to update the comparative mode info based on selected metrics
+@app.callback(
+    Output("comparative-mode-info", "children"),
+    Input("ps-xmetric-dropdown", "value"),
+    Input("ps-ymetric-dropdown", "value"),
+    prevent_initial_call=True,
+)
+def update_comparative_mode_info(x_metric_id, y_metric_id):
+    """Show info about which visualization mode will be used."""
+    if not x_metric_id or not y_metric_id:
+        return html.Span("")
+    
+    x_cumulative = is_cumulative_metric(x_metric_id)
+    y_cumulative = is_cumulative_metric(y_metric_id)
+    
+    if x_cumulative and y_cumulative:
+        return html.Div(
+            [
+                html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
+                html.Span("Cumulative X-Y Plot", style={"color": "#A3BE8C", "fontWeight": "600"}),
+            ],
+            style={"color": "#ECEFF4"},
+        )
+    else:
+        non_cumulative = []
+        if not x_cumulative:
+            non_cumulative.append("Metric 1")
+        if not y_cumulative:
+            non_cumulative.append("Metric 2")
+        return html.Div(
+            [
+                html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
+                html.Span("Dual Y-Axis Time Series", style={"color": "#EBCB8B", "fontWeight": "600"}),
+            ],
+            style={"color": "#ECEFF4"},
+        )
+
 
 # Callback to show/hide CPU core selector for kernel_cpu_time and update dropdown options
 @app.callback(
@@ -1488,6 +1565,10 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
         r, g, b = (int(h[i:i+2], 16) for i in (0, 2, 4))
         rgba_fill = f"rgba({r}, {g}, {b}, 0.15)"
 
+    # Get unit for y-axis label
+    unit = get_metric_unit(metric)
+    y_axis_title = f"Value ({unit})" if unit else "Value"
+    
     fig.add_trace(go.Scatter(
         x=dff["timestamp"],
         y=dff["value"],
@@ -1500,13 +1581,22 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
         hovertemplate=f"<b>{metric}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
     ))
 
+    # Build yaxis config
+    yaxis_config = dict(gridcolor="rgba(76, 86, 106, 0.2)", title=y_axis_title)
+    
+    # For memory metrics, add custom byte tick formatting
+    if is_memory_metric(metric):
+        tickvals, ticktext = get_bytes_tickvals_ticktext(y_min, y_max, num_ticks=5)
+        yaxis_config["tickvals"] = tickvals
+        yaxis_config["ticktext"] = ticktext
+
     fig.update_layout(
         height=350,
         title=dict(text=metric.replace("_", " ") + " (Process Active Period)", x=0.5, font=dict(size=14)),
         hovermode="closest",
         margin=dict(l=50, r=30, t=50, b=40),
         xaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)"),
-        yaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)", title="Value"),
+        yaxis=yaxis_config,
         showlegend=False,
     )
     return fig
@@ -1523,10 +1613,10 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
 )
 def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert("No data available.", color="info", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("No data available.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
     
     if not selected_category:
-        return dbc.Alert("Please select a metric category.", color="info", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("Please select a metric category.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
@@ -1590,7 +1680,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
         df_filtered = pd.DataFrame()
     
     if df_filtered.empty:
-        return dbc.Alert("No data available for the selected category.", color="info", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("No data available for the selected category.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
     
     # Get process time range for gray highlight
     proc_start = None
@@ -1777,21 +1867,22 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store):
     Output("ps-xy-graph", "figure"),
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
+    Input("scatter-toggle", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_time_range):
+def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, processed_df_data, process_time_range):
     fig = go.Figure()
     fig.update_layout(
         paper_bgcolor="rgba(46, 52, 64, 0.95)",
         plot_bgcolor="rgba(59, 66, 82, 0.7)",
         font=dict(color="#d8dee9"),
-        margin=dict(l=70, r=30, t=60, b=60),
+        margin=dict(l=70, r=70, t=60, b=60),
     )
 
     if not processed_df_data or not process_time_range or not x_metric_id or not y_metric_id:
-        fig.update_layout(title=dict(text="Select X and Y metric_id", x=0.5))
+        fig.update_layout(title=dict(text="Select both metrics", x=0.5))
         return fig
 
     dfp = df_from_store(processed_df_data)
@@ -1803,7 +1894,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         fig.update_layout(title=dict(text="Process time range not available", x=0.5))
         return fig
 
-    # Truncate to process window first (your requirement)
+    # Truncate to process window
     dfw = dfp[(dfp["timestamp"] >= proc_start) & (dfp["timestamp"] <= proc_end)].copy()
 
     dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
@@ -1813,9 +1904,11 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         fig.update_layout(title=dict(text="No samples for one (or both) metrics in process window", x=0.5))
         return fig
 
-    # Sort by timestamp and reset index - critical for merge_asof to work correctly
-    dfx = dfx.sort_values("timestamp").reset_index(drop=True)
-    dfy = dfy.sort_values("timestamp").reset_index(drop=True)
+    # Remove duplicate timestamps and sort
+    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first")
+    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first")
+    dfx = dfx.sort_values("timestamp", ascending=True, ignore_index=True)
+    dfy = dfy.sort_values("timestamp", ascending=True, ignore_index=True)
 
     # Auto tolerance for asof matching: ~2x the larger median sampling interval
     dx = dfx["timestamp"].diff().median()
@@ -1834,34 +1927,206 @@ def update_process_xy_plot(x_metric_id, y_metric_id, processed_df_data, process_
         tolerance=tol,
     ).dropna(subset=["y"])
     
-    # Sort by timestamp and reset index 
-    dfxy = dfxy.sort_values("timestamp").reset_index(drop=True)
+    # Sort by timestamp
+    dfxy = dfxy.sort_values("timestamp", ascending=True, ignore_index=True)
 
     if dfxy.empty:
         fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
         return fig
 
-    # Curve in time order: x(t) vs y(t)
-    fig.add_trace(
-        go.Scatter(
-            x=dfxy["x"],
-            y=dfxy["y"],
-            mode="lines+markers",
-            hovertemplate=(
-                "<b>%{fullData.name}</b><br>"
-                "t: %{customdata|%H:%M:%S.%L}<br>"
-                "x: %{x:.4f}<br>"
-                "y: %{y:.4f}<extra></extra>"
-            ),
-            customdata=dfxy["timestamp"],
+    # Metric names for display (remove resource/consumer suffixes)
+    x_abbrev = x_metric_id.split("_R_")[0] if "_R_" in str(x_metric_id) else str(x_metric_id)
+    y_abbrev = y_metric_id.split("_R_")[0] if "_R_" in str(y_metric_id) else str(y_metric_id)
+    
+    # Get units for axis labels
+    x_unit = get_metric_unit(x_metric_id)
+    y_unit = get_metric_unit(y_metric_id)
+    x_label = f"{x_abbrev} ({x_unit})" if x_unit else x_abbrev
+    y_label = f"{y_abbrev} ({y_unit})" if y_unit else y_abbrev
+    
+    # Check if both metrics are cumulative
+    x_cumulative = is_cumulative_metric(x_metric_id)
+    y_cumulative = is_cumulative_metric(y_metric_id)
+    both_cumulative = x_cumulative and y_cumulative
+    
+    # Check if scatter plot mode is enabled
+    show_scatter = scatter_toggle and "scatter" in scatter_toggle
+    
+    # Colors for the two metrics
+    color_x = "#88C0D0"  # Nord cyan - for metric 1
+    color_y = "#FF6B6B"  # Bright coral - for metric 2
+    
+    # Format timestamps for hover display
+    hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
+    
+    if show_scatter:
+        # Scatter plot mode - use raw values to show relationship between metrics
+        fig.add_trace(
+            go.Scatter(
+                x=dfxy["x"],
+                y=dfxy["y"],
+                mode="markers",
+                name="Data Points",
+                marker=dict(
+                    color="#FF8C42",  # Bright orange
+                    size=10,
+                    opacity=0.85,
+                    line=dict(width=1, color="#FFFFFF"),  # White border for better visibility
+                ),
+                hovertemplate=(
+                    "<b>Time:</b> %{customdata}<br>"
+                    f"<b>{x_abbrev}:</b> %{{x:.4f}}<br>"
+                    f"<b>{y_abbrev}:</b> %{{y:.4f}}"
+                    "<extra></extra>"
+                ),
+                customdata=hover_times,
+            )
         )
-    )
-
-    fig.update_layout(
-        title=dict(text=f"Process-specific relationship: {y_metric_id} vs {x_metric_id}", x=0.5),
-        xaxis=dict(title=str(x_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
-        yaxis=dict(title=str(y_metric_id), gridcolor="rgba(76, 86, 106, 0.2)"),
-    )
+        
+        # Build axis configs with optional byte tick formatting
+        xaxis_config = dict(title=dict(text=x_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        yaxis_config = dict(title=dict(text=y_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        x_is_memory = is_memory_metric(x_metric_id)
+        y_is_memory = is_memory_metric(y_metric_id)
+        if x_is_memory:
+            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x"].min(), dfxy["x"].max(), num_ticks=5)
+            xaxis_config["tickvals"] = x_tickvals
+            xaxis_config["ticktext"] = x_ticktext
+        if y_is_memory:
+            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(dfxy["y"].min(), dfxy["y"].max(), num_ticks=5)
+            yaxis_config["tickvals"] = y_tickvals
+            yaxis_config["ticktext"] = y_ticktext
+        
+        fig.update_layout(
+            title=dict(text=f"Scatter plot: {y_abbrev} vs {x_abbrev}", x=0.5, font=dict(size=14)),
+            xaxis=xaxis_config,
+            yaxis=yaxis_config,
+            hovermode="closest",
+        )
+        
+    elif both_cumulative:
+        # Cumulative X-Y line plot mode
+        # Compute cumsum and plot as time-ordered line plot
+        
+        dfxy["x_cumsum"] = dfxy["x"].cumsum()
+        dfxy["y_cumsum"] = dfxy["y"].cumsum()
+        
+        fig.add_trace(
+            go.Scatter(
+                x=dfxy["x_cumsum"],
+                y=dfxy["y_cumsum"],
+                mode="lines+markers",
+                line=dict(color="#A3BE8C", width=2),
+                marker=dict(color="#A3BE8C", size=6),
+                hovertemplate=(
+                    "<b>Time:</b> %{customdata}<br>"
+                    f"<b>Cumulative {x_abbrev}:</b> %{{x:.4f}}<br>"
+                    f"<b>Cumulative {y_abbrev}:</b> %{{y:.4f}}"
+                    "<extra></extra>"
+                ),
+                customdata=hover_times,
+            )
+        )
+        
+        # Cumulative axis labels with units (memory metrics show units in tick labels)
+        x_cum_label = f"Cumulative {x_abbrev} ({x_unit})" if x_unit else f"Cumulative {x_abbrev}"
+        y_cum_label = f"Cumulative {y_abbrev} ({y_unit})" if y_unit else f"Cumulative {y_abbrev}"
+        
+        # Build axis configs with optional byte tick formatting
+        xaxis_config = dict(title=dict(text=x_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        yaxis_config = dict(title=dict(text=y_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        
+        x_is_memory = is_memory_metric(x_metric_id)
+        y_is_memory = is_memory_metric(y_metric_id)
+        if x_is_memory:
+            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x_cumsum"].min(), dfxy["x_cumsum"].max(), num_ticks=5)
+            xaxis_config["tickvals"] = x_tickvals
+            xaxis_config["ticktext"] = x_ticktext
+        if y_is_memory:
+            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(dfxy["y_cumsum"].min(), dfxy["y_cumsum"].max(), num_ticks=5)
+            yaxis_config["tickvals"] = y_tickvals
+            yaxis_config["ticktext"] = y_ticktext
+        
+        fig.update_layout(
+            title=dict(text=f"Cumulative {y_abbrev} vs Cumulative {x_abbrev}", x=0.5, font=dict(size=14)),
+            xaxis=xaxis_config,
+            yaxis=yaxis_config,
+            hovermode="closest",
+        )
+        
+    else:
+        # Dual Y-axis time series mode        
+        # Plot first metric on left Y-axis
+        fig.add_trace(
+            go.Scatter(
+                x=dfxy["timestamp"],
+                y=dfxy["x"],
+                mode="lines+markers",
+                name=x_abbrev,
+                line=dict(color=color_x, width=2),
+                marker=dict(color=color_x, size=6),
+                yaxis="y1",
+                hovertemplate=f"<b>{x_abbrev}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
+            )
+        )
+        
+        # Plot second metric on right Y-axis
+        fig.add_trace(
+            go.Scatter(
+                x=dfxy["timestamp"],
+                y=dfxy["y"],
+                mode="lines+markers",
+                name=y_abbrev,
+                line=dict(color=color_y, width=2),
+                marker=dict(color=color_y, size=6),
+                yaxis="y2",
+                hovertemplate=f"<b>{y_abbrev}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
+            )
+        )
+        
+        # Build y axis configs with optional byte tick formatting
+        yaxis_config = dict(
+            title=dict(text=x_label, font=dict(size=11, color=color_x)),
+            tickfont=dict(color=color_x),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+            side="left",
+        )
+        yaxis2_config = dict(
+            title=dict(text=y_label, font=dict(size=11, color=color_y)),
+            tickfont=dict(color=color_y),
+            overlaying="y",
+            side="right",
+            showgrid=False,
+        )
+        
+        x_is_memory = is_memory_metric(x_metric_id)
+        y_is_memory = is_memory_metric(y_metric_id)
+        if x_is_memory:
+            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x"].min(), dfxy["x"].max(), num_ticks=5)
+            yaxis_config["tickvals"] = x_tickvals
+            yaxis_config["ticktext"] = x_ticktext
+        if y_is_memory:
+            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(dfxy["y"].min(), dfxy["y"].max(), num_ticks=5)
+            yaxis2_config["tickvals"] = y_tickvals
+            yaxis2_config["ticktext"] = y_ticktext
+        
+        fig.update_layout(
+            title=dict(text=f"Time Series: {x_abbrev} & {y_abbrev}", x=0.5, font=dict(size=14)),
+            xaxis=dict(title=dict(text="Time", font=dict(size=12)), gridcolor="rgba(76, 86, 106, 0.2)", domain=[0.05, 0.95]),
+            yaxis=yaxis_config,
+            yaxis2=yaxis2_config,
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.15,  # Position below x-axis
+                xanchor="center",
+                x=0.5,
+                bgcolor="rgba(59, 66, 82, 0.8)",
+            ),
+            margin=dict(b=80),  # Add bottom margin to accommodate legend
+            hovermode="x unified",
+        )
+    
     return fig
 
 
@@ -1976,9 +2241,11 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     if dfx.empty or dfy.empty:
         return None
     
-    # Sort by timestamp and reset index
-    dfx = dfx.sort_values("timestamp").reset_index(drop=True)
-    dfy = dfy.sort_values("timestamp").reset_index(drop=True)
+    # Remove duplicate timestamps
+    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first")
+    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first")
+    dfx = dfx.sort_values("timestamp", ascending=True, ignore_index=True)
+    dfy = dfy.sort_values("timestamp", ascending=True, ignore_index=True)
     
     # Auto tolerance for asof matching
     dx = dfx["timestamp"].diff().median()
@@ -1997,7 +2264,8 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
         tolerance=tol,
     ).dropna(subset=["y"])
     
-    dfxy = dfxy.sort_values("timestamp").reset_index(drop=True)
+    # Sort by timestamp 
+    dfxy = dfxy.sort_values("timestamp", ascending=True, ignore_index=True)
     
     if dfxy.empty:
         return None
@@ -2014,4 +2282,4 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=8050)
+    app.run(debug=True, host="0.0.0.0", port=8051)

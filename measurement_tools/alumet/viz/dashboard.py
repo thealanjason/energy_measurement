@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import dash_bootstrap_components as dbc
 from pathlib import Path
 import dash
-from dash import Dash, html, dcc, callback, Input, Output, State, ctx, MATCH
+from dash import Dash, html, dcc, callback, Input, Output, State, ctx, MATCH, ALL
 
 from utils import (
     load_csv_from_path,
@@ -488,6 +488,7 @@ app.layout = dbc.Container(
         dcc.Store(id="original-df-store", data=None),  # Store original dataframe
         dcc.Store(id="process-time-range-store", data=None),  # Store process time range
         dcc.Store(id="timeseries-filtered-df-store", data=None),  # Store filtered dataframe for Y-axis rescaling
+        dcc.Store(id="grid-shared-xrange-store", data=None),  # Shared x-range for synchronized grid plot zooming
     ],
     style={
         "backgroundColor": "#2E3440",
@@ -845,8 +846,36 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                                         ),
                                     ],
                                     width=12,
-                                    lg=4,
+                                    lg=3,
                                     className="mb-3",
+                                ),
+                                dbc.Col(
+                                    html.Div(
+                                        [
+                                            html.Label(
+                                                "Y-Axis Options:",
+                                                style={
+                                                    "color": "#ECEFF4",
+                                                    "marginRight": "10px",
+                                                    "fontSize": "1rem",
+                                                    "fontWeight": "600",
+                                                }
+                                            ),
+                                            dcc.Checklist(
+                                                id="shared-yaxis-toggle",
+                                                options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
+                                                value=[],
+                                                style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                                inputStyle={"marginRight": "8px"},
+                                            ),
+                                        ],
+                                        id="yaxis-options-container",
+                                        style={"display": "none"},  # Hidden by default, shown when valid category selected
+                                    ),
+                                    width=12,
+                                    lg=5,
+                                    className="mb-3",
+                                    style={"display": "flex", "flexDirection": "column", "justifyContent": "center"},
                                 ),
                             ],
                             className="mb-4",
@@ -1317,6 +1346,28 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     
     return selector_children, options, visible_style
 
+
+# Callback to show/hide Y-axis options based on metric category
+# Only show for categories with same units (energy, memory, kernel_cpu_time), hide for miscellaneous
+@app.callback(
+    Output("yaxis-options-container", "style"),
+    Output("shared-yaxis-toggle", "value"),
+    Input("metric-category-dropdown", "value"),
+    State("shared-yaxis-toggle", "value"),
+)
+def update_yaxis_options_visibility(selected_category, current_toggle_value):
+    """Show Y-axis options only for categories with same units, hide for miscellaneous."""
+    # Categories where sharing Y-axis makes sense (same units within category)
+    valid_categories = ["energy", "memory", "kernel_cpu_time"]
+    
+    if selected_category in valid_categories:
+        # Show the Y-axis options
+        return {"display": "flex", "flexDirection": "column"}, current_toggle_value
+    else:
+        # Hide and reset the toggle for miscellaneous or no selection
+        return {"display": "none"}, []
+
+
 # MATCH callback to update filter dropdown options and show/hide containers
 @app.callback(
     Output({"type": "rk-container", "index": MATCH}, "style"),
@@ -1601,17 +1652,90 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
     )
     return fig
 
+
+# Callback to capture zoom events from grid plots and update shared x-range
+@app.callback(
+    Output("grid-shared-xrange-store", "data"),
+    Input({"type": "grid-plot", "index": ALL}, "relayoutData"),
+    State("grid-shared-xrange-store", "data"),
+    prevent_initial_call=True,
+)
+def sync_grid_plot_zoom(relayout_data_list, current_shared_range):
+    """Sync zoom across all grid plots by capturing relayoutData and updating shared x-range."""
+    if not relayout_data_list:
+        return current_shared_range
+    
+    # Find which plot triggered the callback and extract x-range
+    for relayout_data in relayout_data_list:
+        if relayout_data is None:
+            continue
+        
+        # Check for zoom event (xaxis.range)
+        if "xaxis.range[0]" in relayout_data and "xaxis.range[1]" in relayout_data:
+            return {
+                "x0": relayout_data["xaxis.range[0]"],
+                "x1": relayout_data["xaxis.range[1]"],
+            }
+        
+        # Check for autorange/reset event (double-click to reset)
+        if "xaxis.autorange" in relayout_data and relayout_data["xaxis.autorange"]:
+            return {"autorange": True}  # Signal to reset all plots to auto range
+    
+    return current_shared_range
+
+
+# Callback to apply shared x-range to all grid plots
+@app.callback(
+    Output({"type": "grid-plot", "index": ALL}, "figure", allow_duplicate=True),
+    Input("grid-shared-xrange-store", "data"),
+    State({"type": "grid-plot", "index": ALL}, "figure"),
+    prevent_initial_call=True,
+)
+def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
+    """Apply shared x-range to all grid plots when zoom/reset occurs."""
+    if not shared_range or not current_figures:
+        return [dash.no_update] * len(current_figures) if current_figures else dash.no_update
+    
+    is_autorange = shared_range.get("autorange", False)
+    updated_figures = []
+    
+    for fig in current_figures:
+        if not fig or not isinstance(fig, dict) or "layout" not in fig:
+            updated_figures.append(dash.no_update)
+            continue
+        
+        # Deep copy the figure to avoid mutating the original
+        new_fig = copy.deepcopy(fig)
+        
+        if "xaxis" not in new_fig["layout"]:
+            new_fig["layout"]["xaxis"] = {}
+        
+        if is_autorange:
+            # Reset to autorange (double-click reset)
+            new_fig["layout"]["xaxis"]["autorange"] = True
+            new_fig["layout"]["xaxis"].pop("range", None)
+        else:
+            # Apply the shared x-range (zoom)
+            new_fig["layout"]["xaxis"]["range"] = [shared_range["x0"], shared_range["x1"]]
+            new_fig["layout"]["xaxis"]["autorange"] = False
+        
+        updated_figures.append(new_fig)
+    
+    return updated_figures
+
+
 # Callback to update time series plot based on category and CPU core selection
 @app.callback(
     Output("timeseries-plot-container", "children"),
     Output("timeseries-filtered-df-store", "data"),
     Input("metric-category-dropdown", "value"),
     Input("cpu-core-dropdown", "value"),
+    State("shared-yaxis-toggle", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_data, process_time_range):
+def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_toggle, processed_df_data, process_time_range):
     if not processed_df_data:
         return dbc.Alert("No data available.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
     
@@ -1695,7 +1819,8 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
     
     # Create figure with filtered time series, but with full time range for x-axis
     # Pass category to set appropriate Y-axis label
-    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category)
+    share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
     
     # Store filtered data for Y-axis rescaling callback
     # Include metric_order to ensure consistent yaxis mapping
@@ -1734,20 +1859,171 @@ def update_timeseries_plot(selected_category, selected_cpu_core, processed_df_da
     return graph_component, filtered_df_json
 
 
+# Callback to update Y-axis ranges when shared-yaxis toggle is changed
+# This preserves the current X-axis zoom and only updates Y-axis ranges
+@app.callback(
+    Output("timeseries-graph", "figure", allow_duplicate=True),
+    Input("shared-yaxis-toggle", "value"),
+    State("timeseries-graph", "figure"),
+    State("timeseries-filtered-df-store", "data"),
+    prevent_initial_call=True,
+)
+def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_store):
+    """Update Y-axis ranges when shared Y-axis toggle is changed.
+    
+    Preserves the current X-axis zoom state and only updates Y-axis ranges.
+    """
+    if not current_figure or not filtered_df_store:
+        return current_figure if current_figure else dash.no_update
+    
+    # Extract data and metric order from the store
+    if not isinstance(filtered_df_store, dict) or "data" not in filtered_df_store:
+        return current_figure
+    
+    data_records = filtered_df_store.get("data")
+    metric_order = filtered_df_store.get("metric_order", [])
+    
+    if not data_records or not metric_order:
+        return current_figure
+    
+    # Load filtered data
+    df = pd.DataFrame(data_records)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    
+    # Deep copy the figure to avoid modifying shared nested dicts
+    updated_figure = copy.deepcopy(current_figure)
+    layout = updated_figure.get("layout", {})
+    
+    # Check if shared Y-axis is enabled
+    share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+    
+    # Get current X-axis range from the figure (preserves zoom state)
+    # Use first xaxis since they're shared
+    xaxis_layout = layout.get("xaxis", {})
+    x_range = xaxis_layout.get("range")
+    
+    if x_range:
+        # Use the current zoomed X-range
+        x_min = pd.to_datetime(x_range[0])
+        x_max = pd.to_datetime(x_range[1])
+        
+        # Ensure timezone compatibility
+        df_tz = df["timestamp"].dt.tz
+        if df_tz is not None:
+            if x_min.tz is None:
+                x_min = x_min.tz_localize(df_tz)
+            if x_max.tz is None:
+                x_max = x_max.tz_localize(df_tz)
+        else:
+            if x_min.tz is not None:
+                x_min = x_min.tz_convert(None) if hasattr(x_min, 'tz_convert') else x_min.replace(tzinfo=None)
+            if x_max.tz is not None:
+                x_max = x_max.tz_convert(None) if hasattr(x_max, 'tz_convert') else x_max.replace(tzinfo=None)
+        
+        visible_data = df[(df["timestamp"] >= x_min) & (df["timestamp"] <= x_max)]
+    else:
+        # No zoom applied, use all data
+        visible_data = df
+    
+    if visible_data.empty:
+        return current_figure
+    
+    # Check if this is a memory category (check first metric)
+    is_memory_category = metric_order and is_memory_metric(metric_order[0])
+    
+    if share_yaxis:
+        # Calculate global Y-range across ALL visible data
+        global_y_min = visible_data["value"].min()
+        global_y_max = visible_data["value"].max()
+        y_range_val = global_y_max - global_y_min if global_y_max != global_y_min else abs(global_y_max) if global_y_max != 0 else 1
+        y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
+        
+        calc_min = global_y_min - y_padding
+        calc_max = global_y_max + y_padding
+        if calc_min >= calc_max:
+            calc_min = global_y_min - 0.1 if global_y_min != 0 else -0.1
+            calc_max = global_y_max + 0.1 if global_y_max != 0 else 0.1
+        
+        # For memory metrics, ensure minimum is not negative
+        if is_memory_category:
+            calc_min = max(0, calc_min)
+        
+        # Calculate shared tick values for memory metrics
+        shared_tickvals = None
+        shared_ticktext = None
+        if is_memory_category:
+            shared_tickvals, shared_ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+        
+        # Apply shared Y-range to ALL subplots
+        for subplot_idx in range(len(metric_order)):
+            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+            if yaxis_key in layout:
+                layout[yaxis_key]["range"] = [calc_min, calc_max]
+                layout[yaxis_key]["autorange"] = False
+                # Apply consistent tick formatting for memory metrics
+                if is_memory_category and shared_tickvals is not None:
+                    layout[yaxis_key]["tickvals"] = shared_tickvals
+                    layout[yaxis_key]["ticktext"] = shared_ticktext
+                elif is_memory_category:
+                    # Clear old tick values if no new ones (shouldn't happen but safety)
+                    layout[yaxis_key].pop("tickvals", None)
+                    layout[yaxis_key].pop("ticktext", None)
+    else:
+        # Calculate Y-range independently for each subplot
+        for subplot_idx in range(len(metric_order)):
+            metric_id = metric_order[subplot_idx]
+            
+            # Filter visible data for this specific metric
+            metric_visible = visible_data[visible_data["metric_id"] == metric_id]
+            
+            if metric_visible.empty:
+                continue
+            
+            y_min_val = metric_visible["value"].min()
+            y_max_val = metric_visible["value"].max()
+            y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
+            y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
+            
+            calc_min = y_min_val - y_padding
+            calc_max = y_max_val + y_padding
+            if calc_min >= calc_max:
+                calc_min = y_min_val - 0.1 if y_min_val != 0 else -0.1
+                calc_max = y_max_val + 0.1 if y_max_val != 0 else 0.1
+            
+            # For memory metrics, ensure minimum is not negative
+            if is_memory_category:
+                calc_min = max(0, calc_min)
+            
+            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+            if yaxis_key in layout:
+                layout[yaxis_key]["range"] = [calc_min, calc_max]
+                layout[yaxis_key]["autorange"] = False
+                
+                # Update tick formatting for memory metrics
+                if is_memory_category:
+                    tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+                    layout[yaxis_key]["tickvals"] = tickvals
+                    layout[yaxis_key]["ticktext"] = ticktext
+    
+    updated_figure["layout"] = layout
+    return updated_figure
+
+
 # Callback to update Y-axis ranges when zooming on X-axis
-# This rescales each subplot's Y-axis independently to fit its visible data
+# This rescales each subplot's Y-axis based on visible data (shared or independent)
 @app.callback(
     Output("timeseries-graph", "figure", allow_duplicate=True),
     Input("timeseries-graph", "relayoutData"),
     State("timeseries-graph", "figure"),
     State("timeseries-filtered-df-store", "data"),
+    State("shared-yaxis-toggle", "value"),
     prevent_initial_call=True,
 )
-def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store):
+def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, shared_yaxis_toggle):
     """Update Y-axis ranges when X-axis is zoomed to show visible data range.
     
-    Each subplot is updated independently based on its own visible data.
-    With independent X-axes, only the subplot that was zoomed gets its Y-axis updated.
+    If shared Y-axis is enabled, all subplots use the same Y-range based on global min/max.
+    Otherwise, each subplot is updated independently based on its own visible data.
     """
     if not relayout_data or not current_figure or not filtered_df_store:
         return current_figure
@@ -1812,52 +2088,111 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store):
     updated_figure = copy.deepcopy(current_figure)
     layout = updated_figure.get("layout", {})
     
-    # Update Y-axis only for subplots that had their X-axis changed
-    for subplot_idx, (x_min, x_max) in xaxis_changes.items():
-        if subplot_idx >= len(metric_order):
-            continue
+    # Check if shared Y-axis is enabled
+    share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+    
+    # Get the zoomed X range (use first changed axis, since X-axes are shared)
+    first_subplot_idx = list(xaxis_changes.keys())[0]
+    x_min, x_max = xaxis_changes[first_subplot_idx]
+    
+    # Ensure timezone compatibility for the X range
+    if df_tz is not None:
+        if x_min.tz is None:
+            x_min = x_min.tz_localize(df_tz)
+        if x_max.tz is None:
+            x_max = x_max.tz_localize(df_tz)
+    else:
+        if x_min.tz is not None:
+            x_min = x_min.tz_convert(None) if hasattr(x_min, 'tz_convert') else x_min.replace(tzinfo=None)
+        if x_max.tz is not None:
+            x_max = x_max.tz_convert(None) if hasattr(x_max, 'tz_convert') else x_max.replace(tzinfo=None)
+    
+    # Check if this is a memory category (check first metric)
+    is_memory_category = metric_order and is_memory_metric(metric_order[0])
+    
+    if share_yaxis:
+        # Calculate global Y-range across ALL visible data from ALL metrics
+        visible_data = df[(df["timestamp"] >= x_min) & (df["timestamp"] <= x_max)]
         
-        metric_id = metric_order[subplot_idx]
+        if visible_data.empty:
+            return current_figure
         
-        # Ensure timezone compatibility
-        if df_tz is not None:
-            if x_min.tz is None:
-                x_min = x_min.tz_localize(df_tz)
-            if x_max.tz is None:
-                x_max = x_max.tz_localize(df_tz)
-        else:
-            if x_min.tz is not None:
-                x_min = x_min.tz_convert(None) if hasattr(x_min, 'tz_convert') else x_min.replace(tzinfo=None)
-            if x_max.tz is not None:
-                x_max = x_max.tz_convert(None) if hasattr(x_max, 'tz_convert') else x_max.replace(tzinfo=None)
-        
-        # Filter data for this specific metric and visible X range
-        metric_data = df[df["metric_id"] == metric_id]
-        metric_visible = metric_data[(metric_data["timestamp"] >= x_min) & (metric_data["timestamp"] <= x_max)]
-        
-        if metric_visible.empty:
-            continue
-        
-        # Calculate Y range for this metric based on visible data
-        y_min_val = metric_visible["value"].min()
-        y_max_val = metric_visible["value"].max()
-        y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
+        global_y_min = visible_data["value"].min()
+        global_y_max = visible_data["value"].max()
+        y_range_val = global_y_max - global_y_min if global_y_max != global_y_min else abs(global_y_max) if global_y_max != 0 else 1
         y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
         
-        # Ensure min < max
-        calc_min = y_min_val - y_padding
-        calc_max = y_max_val + y_padding
+        calc_min = global_y_min - y_padding
+        calc_max = global_y_max + y_padding
         if calc_min >= calc_max:
-            calc_min = y_min_val - 0.1 if y_min_val != 0 else -0.1
-            calc_max = y_max_val + 0.1 if y_max_val != 0 else 0.1
+            calc_min = global_y_min - 0.1 if global_y_min != 0 else -0.1
+            calc_max = global_y_max + 0.1 if global_y_max != 0 else 0.1
         
-        # Update this subplot's y-axis
-        # yaxis for first subplot (idx=0), yaxis2 for second (idx=1), etc.
-        yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+        # For memory metrics, ensure minimum is not negative
+        if is_memory_category:
+            calc_min = max(0, calc_min)
         
-        if yaxis_key in layout:
-            layout[yaxis_key]["range"] = [calc_min, calc_max]
-            layout[yaxis_key]["autorange"] = False
+        # Calculate shared tick values for memory metrics
+        shared_tickvals = None
+        shared_ticktext = None
+        if is_memory_category:
+            shared_tickvals, shared_ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+        
+        # Apply shared Y-range to ALL subplots
+        for subplot_idx in range(len(metric_order)):
+            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+            if yaxis_key in layout:
+                layout[yaxis_key]["range"] = [calc_min, calc_max]
+                layout[yaxis_key]["autorange"] = False
+                # Apply consistent tick formatting for memory metrics
+                if is_memory_category and shared_tickvals is not None:
+                    layout[yaxis_key]["tickvals"] = shared_tickvals
+                    layout[yaxis_key]["ticktext"] = shared_ticktext
+                elif is_memory_category:
+                    # Clear old tick values if no new ones
+                    layout[yaxis_key].pop("tickvals", None)
+                    layout[yaxis_key].pop("ticktext", None)
+    else:
+        # Update Y-axis independently for each subplot based on its own visible data
+        for subplot_idx in range(len(metric_order)):
+            metric_id = metric_order[subplot_idx]
+            
+            # Filter data for this specific metric and visible X range
+            metric_data = df[df["metric_id"] == metric_id]
+            metric_visible = metric_data[(metric_data["timestamp"] >= x_min) & (metric_data["timestamp"] <= x_max)]
+            
+            if metric_visible.empty:
+                continue
+            
+            # Calculate Y range for this metric based on visible data
+            y_min_val = metric_visible["value"].min()
+            y_max_val = metric_visible["value"].max()
+            y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
+            y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
+            
+            # Ensure min < max
+            calc_min = y_min_val - y_padding
+            calc_max = y_max_val + y_padding
+            if calc_min >= calc_max:
+                calc_min = y_min_val - 0.1 if y_min_val != 0 else -0.1
+                calc_max = y_max_val + 0.1 if y_max_val != 0 else 0.1
+            
+            # For memory metrics, ensure minimum is not negative
+            if is_memory_category:
+                calc_min = max(0, calc_min)
+            
+            # Update this subplot's y-axis
+            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+            
+            if yaxis_key in layout:
+                layout[yaxis_key]["range"] = [calc_min, calc_max]
+                layout[yaxis_key]["autorange"] = False
+                
+                # Update tick formatting for memory metrics
+                if is_memory_category:
+                    tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+                    layout[yaxis_key]["tickvals"] = tickvals
+                    layout[yaxis_key]["ticktext"] = ticktext
     
     updated_figure["layout"] = layout
     return updated_figure

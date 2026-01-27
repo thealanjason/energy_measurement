@@ -1,5 +1,6 @@
 import warnings
 import re
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.colors as pc
@@ -170,6 +171,187 @@ def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
     active_timestamps = df.loc[active_mask, "timestamp"]
     return active_timestamps.min(), active_timestamps.max()
     
+# ================================================
+# Metric classification helper functions
+# ================================================
+def is_cumulative_metric(metric_id: str) -> bool:
+    """
+    Determine if a metric represents a cumulative quantity that should be summed over time.
+    
+    Based on analysis of Alumet CSV outputs, metrics fall into two categories:
+    
+    CUMULATIVE (values accumulate over time, summing makes sense):
+    - Energy metrics: attributed_energy_J, rapl_consumed_energy_J
+    - Time metrics: cpu_time_delta_ns, kernel_cpu_time_ms
+    - Hardware perf counters: perf_hardware_* (INSTRUCTIONS, CPU_CYCLES, CACHE_*, BRANCH_*, etc.)
+    - Software perf counters: perf_software_* (PAGE_FAULTS, CONTEXT_SWITCHES, etc.)
+    - Kernel counters: kernel_context_switches, kernel_new_forks
+    
+    NON-CUMULATIVE (instantaneous state or rate values):
+    - Memory metrics: mem_*, *_kB, memory_usage_B (current state snapshots)
+    - Rate metrics: cpu_percent, cpu_percent_% (instantaneous utilization)
+    - State counters: kernel_n_procs_running, kernel_n_procs_blocked (current count)
+    """
+    metric_lower = str(metric_id).lower()
+    
+    # Non-cumulative metrics
+    non_cumulative_patterns = [
+        "percent",          # cpu_percent, cpu_percent_% - rates
+        "n_procs",          # kernel_n_procs_running, kernel_n_procs_blocked - current state
+        "mem_total",        # Total memory (constant)
+        "mem_free",         # Current free memory
+        "mem_available",    # Current available memory
+        "memory_usage",     # Current memory usage
+        "active_kb",        # Current active memory
+        "inactive_kb",      # Current inactive memory
+        "cached_kb",        # Current cached memory  
+        "mapped_kb",        # Current mapped memory
+        "swap_cached",      # Current swap cached
+    ]
+    
+    for pattern in non_cumulative_patterns:
+        if pattern in metric_lower:
+            return False
+    
+    # Cumulative metrics
+    cumulative_patterns = [
+        # Energy metrics (Joules)
+        "energy",           # attributed_energy_J, rapl_consumed_energy_J
+        "_j",               # Joules unit suffix
+        
+        # Time metrics
+        "cpu_time",         # cpu_time_delta_ns, kernel_cpu_time_ms
+        "time_delta",       # Time deltas
+        "time_ms",          # Time in milliseconds
+        "time_ns",          # Time in nanoseconds
+        
+        # Hardware performance counters (perf_hardware_*)
+        "perf_hardware",    # All hardware perf counters are cumulative
+        "instruction",      # perf_hardware_INSTRUCTIONS, perf_hardware_BRANCH_INSTRUCTIONS
+        "cpu_cycles",       # perf_hardware_CPU_CYCLES, perf_hardware_REF_CPU_CYCLES
+        "bus_cycles",       # perf_hardware_BUS_CYCLES
+        "cache_miss",       # perf_hardware_CACHE_MISSES
+        "cache_ref",        # perf_hardware_CACHE_REFERENCES
+        "branch_miss",      # perf_hardware_BRANCH_MISSES
+        
+        # Software performance counters (perf_software_*)
+        "perf_software",    # All software perf counters are cumulative
+        "page_fault",       # perf_software_PAGE_FAULTS*
+        "context_switch",   # perf_software_CONTEXT_SWITCHES, kernel_context_switches
+        "cpu_migration",    # perf_software_CPU_MIGRATIONS
+        "cgroup_switch",    # perf_software_CGROUP_SWITCHES
+        "alignment_fault",  # perf_software_ALIGNMENT_FAULTS
+        "emulation_fault",  # perf_software_EMULATION_FAULTS
+        
+        # Kernel counters
+        "new_forks",        # kernel_new_forks
+        
+        # General patterns for other potential metrics
+        "flop",             # Floating point operations
+        "bytes_read",       # Data read (I/O)
+        "bytes_written",    # Data written (I/O)
+        "bytes_transfer",   # Data transferred
+        "packets",          # Network packets
+    ]
+    
+    for pattern in cumulative_patterns:
+        if pattern in metric_lower:
+            return True
+    
+    return False
+
+
+def get_metric_unit(metric_name: str) -> str:
+    """
+    Extract the unit from a metric name.
+    
+    Note: Memory metrics with "_kB" suffix actually store values in Bytes, not kiloBytes.
+    This is a known issue with the naming convention.
+    
+    Returns:
+        Unit string (e.g., "J", "B", "ns", "ms", "%")
+    """
+    metric_lower = str(metric_name).lower()
+    
+    # Energy metrics (Joules)
+    if "_j" in metric_lower or "energy" in metric_lower:
+        return "J"
+    
+    # Memory metrics - values are in Bytes despite "_kB" in name
+    if "_kb" in metric_lower or "memory_usage" in metric_lower:
+        return "B"
+    
+    # Time metrics
+    if "_ns" in metric_lower or "delta_ns" in metric_lower:
+        return "ns"
+    if "_ms" in metric_lower or "time_ms" in metric_lower:
+        return "ms"
+    
+    # Percentage metrics
+    if "percent" in metric_lower or metric_lower.endswith("_%"):
+        return "%"
+    
+    # Count metrics (no unit)
+    return ""
+
+
+def is_memory_metric(metric_name: str) -> bool:
+    """Check if a metric is a memory-related metric (values in Bytes)."""
+    metric_lower = str(metric_name).lower()
+    memory_patterns = [
+        "mem_", "memory", "_kb", "active_kb", "inactive_kb", 
+        "cached_kb", "mapped_kb", "swap_cached"
+    ]
+    return any(p in metric_lower for p in memory_patterns)
+
+
+def format_bytes_ticklabel(value: float) -> str:
+    """
+    Format a byte value with appropriate unit (B, KB, MB, GB, TB).
+    Uses binary prefixes (1024-based).
+    
+    Args:
+        value: Value in bytes
+    
+    Returns:
+        Formatted string with appropriate unit
+    """
+    if abs(value) < 1024:
+        return f"{value:.0f} B"
+    elif abs(value) < 1024 ** 2:
+        return f"{value / 1024:.1f} KB"
+    elif abs(value) < 1024 ** 3:
+        return f"{value / (1024 ** 2):.1f} MB"
+    elif abs(value) < 1024 ** 4:
+        return f"{value / (1024 ** 3):.1f} GB"
+    else:
+        return f"{value / (1024 ** 4):.1f} TB"
+
+
+def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) -> tuple:
+    """
+    Generate tick values and formatted tick text for byte-valued axes.
+    
+    Args:
+        y_min: Minimum y value in bytes
+        y_max: Maximum y value in bytes
+        num_ticks: Approximate number of ticks to generate
+    
+    Returns:
+        Tuple of (tickvals, ticktext) lists for Plotly axis configuration
+    """
+    # Handle edge cases
+    if y_max <= y_min:
+        y_max = y_min + 1
+    
+    # Generate evenly spaced tick values
+    tickvals = np.linspace(y_min, y_max, num_ticks)
+    ticktext = [format_bytes_ticklabel(v) for v in tickvals]
+    
+    return list(tickvals), ticktext
+
+
+
 # ================================================
 # Metric plot label, title, and hovertemplate formatting helper functions
 # ================================================
@@ -528,20 +710,28 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         )
         # Determine Y-axis label based on category
         if category == "energy":
-            y_axis_label = "Value in J"
+            y_axis_label = "Value (J)"
         elif category == "memory":
-            y_axis_label = "Value in Bytes"
+            y_axis_label = "Value (B)"
         else:
             y_axis_label = "Value"
         
         # Enable autorange for y-axis so it scales dynamically when zooming in on x-axis
-        fig.update_yaxes(
+        yaxis_config = dict(
             title_text=y_axis_label,
             autorange=True,
             fixedrange=False,
             gridcolor="rgba(76, 86, 106, 0.2)",
-            row=idx, col=1
         )
+        
+        # For memory metrics, add custom tick formatting
+        if category == "memory" and not metric_data.empty:
+            y_min, y_max = metric_data["value"].min(), metric_data["value"].max()
+            tickvals, ticktext = get_bytes_tickvals_ticktext(y_min, y_max, num_ticks=5)
+            yaxis_config["tickvals"] = tickvals
+            yaxis_config["ticktext"] = ticktext
+        
+        fig.update_yaxes(**yaxis_config, row=idx, col=1)
     
     # Add "Time" label only to the bottom subplot
     fig.update_xaxes(title_text="Time", row=n_metrics, col=1)
@@ -561,7 +751,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         autosize=True,  # Enable autosize to fill container width
         width=None,  # Let it fill the container
         showlegend=True,  # Ensure legend is visible
-        legend=dict(
+        legend=dict[str, str | int | dict[str, str]](
             bgcolor="rgba(46, 52, 64, 0.8)",
             bordercolor="rgba(136, 192, 208, 0.3)",
             borderwidth=1,

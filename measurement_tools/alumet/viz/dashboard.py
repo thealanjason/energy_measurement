@@ -1,6 +1,7 @@
 from typing import Any, Optional
 import copy
 import uuid
+import time
 import tempfile
 import atexit
 import shutil
@@ -34,14 +35,18 @@ BASE_DIR = Path(__file__).parent.parent
 
 # ============================================================
 # Server-side DataFrame Cache
-# Stores large DataFrames on disk using Parquet format (10-100x faster than JSON)
+# Use in-memory cache (instant) + Parquet on disk (persistent)
 # dcc.Store only holds a reference ID, not the actual data
 # ============================================================
 CACHE_DIR = Path(tempfile.gettempdir()) / "dash_df_cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
+# In-memory cache: eliminates repeated Parquet disk reads (11+ per session)
+_MEMORY_CACHE: dict[str, pd.DataFrame] = {}
+
 # Clean up cache on exit
 def _cleanup_cache():
+    _MEMORY_CACHE.clear()
     if CACHE_DIR.exists():
         shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
@@ -49,9 +54,9 @@ atexit.register(_cleanup_cache)
 
 
 def cache_dataframe(df: pd.DataFrame, prefix: str = "df") -> str:
-    """Cache DataFrame to disk and return a reference ID.
+    """Cache DataFrame to disk and in-memory, return a reference ID.
     
-    Uses Parquet format which is 10-100x faster than JSON serialization.
+    Uses Parquet format on disk and in-memory dict for fast access.
     
     Args:
         df: DataFrame to cache
@@ -66,14 +71,17 @@ def cache_dataframe(df: pd.DataFrame, prefix: str = "df") -> str:
     cache_id = f"{prefix}_{uuid.uuid4().hex[:12]}"
     cache_path = CACHE_DIR / f"{cache_id}.parquet"
     
-    # Parquet is much faster than JSON for large DataFrames
+    # Persist to disk (backup) and keep in memory (fast access)
     df.to_parquet(cache_path, engine="pyarrow", index=False)
+    _MEMORY_CACHE[cache_id] = df
     
     return cache_id
 
 
 def load_cached_dataframe(cache_id: Optional[str]) -> pd.DataFrame:
     """Load DataFrame from cache by ID.
+    
+    Checks in-memory cache first (instant), falls back to disk Parquet.
     
     Args:
         cache_id: Cache ID returned by cache_dataframe()
@@ -84,12 +92,18 @@ def load_cached_dataframe(cache_id: Optional[str]) -> pd.DataFrame:
     if not cache_id:
         return pd.DataFrame()
     
+    # Check in-memory cache first (instant, no disk I/O)
+    if cache_id in _MEMORY_CACHE:
+        return _MEMORY_CACHE[cache_id]
+    
+    # Fall back to disk Parquet and promote to memory
     cache_path = CACHE_DIR / f"{cache_id}.parquet"
+    if cache_path.exists():
+        df = pd.read_parquet(cache_path, engine="pyarrow")
+        _MEMORY_CACHE[cache_id] = df  # Promote to memory for next access
+        return df
     
-    if not cache_path.exists():
-        return pd.DataFrame()
-    
-    return pd.read_parquet(cache_path, engine="pyarrow")
+    return pd.DataFrame()
 
 
 def df_from_store(store_data: Any) -> pd.DataFrame:
@@ -114,6 +128,20 @@ def df_from_store(store_data: Any) -> pd.DataFrame:
         # Legacy 'records' format or direct dict
         return pd.DataFrame(store_data)
 
+
+def _ensure_timestamp_datetime(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure timestamp column is datetime64 dtype.
+    
+    Args:
+        df: DataFrame to ensure timestamp column is datetime64 dtype
+    
+    Returns:
+        DataFrame with timestamp column as datetime64 dtype
+    """
+    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
 
 # Initialize Dash app
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
@@ -705,31 +733,43 @@ def load_and_visualize(n_clicks, directory_path):
             )
             return status_msg, None, None, None
         
-        # Load all data from CSV file
+        # Load all data from CSV file (timed for performance tracking)
+        t0 = time.perf_counter()
         df_all = load_csv_from_path(csv_file)
+        t_csv = time.perf_counter()
         
         # Preprocess dataframe for all time series visualization
         df_processed = preprocess_dataframe_for_visualization(df_all)
+        t_preprocess = time.perf_counter()
+        
+        # Use server-side cache for large DataFrames (much faster than JSON in dcc.Store)
+        # Only store cache IDs in dcc.Store, not the actual data
+        processed_cache_id = cache_dataframe(df_processed, prefix="processed")
+        original_cache_id = cache_dataframe(df_all, prefix="original")
+        t_cache = time.perf_counter()
         
         # Get process time range from the dataframe
         proc_start, proc_end = get_process_time_range_from_df(df_all)
-        proc_duration = (proc_end - proc_start).total_seconds() if proc_start and proc_end else 0
+        
+        # Compute timing breakdown
+        csv_time = t_csv - t0
+        preprocess_time = t_preprocess - t_csv
+        cache_time = t_cache - t_preprocess
+        total_time = t_cache - t0
+        n_rows = len(df_all)
         
         status_msg = dbc.Alert(
             [
                 "✅ ",
                 html.Strong("Data loaded successfully"),
-                f" — runtime: {proc_duration:.2f}s"
+                html.Span(
+                    f" (CSV read: {csv_time:.2f}s, preprocess: {preprocess_time:.2f}s, cache: {cache_time:.2f}s) ",
+                    style={"fontSize": "0.85rem"},
+                ),
             ],
             color="success",
             style={"margin": "0"},
         )
-        
-        # Use server-side cache for large DataFrames (much faster than JSON in dcc.Store)
-        # Only store cache IDs in dcc.Store, not the actual data
-        # Parquet format is 10-100x faster than JSON for large datasets
-        processed_cache_id = cache_dataframe(df_processed, prefix="processed")
-        original_cache_id = cache_dataframe(df_all, prefix="original")
         
         process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
                              "end": proc_end.isoformat() if proc_end else None}
@@ -783,7 +823,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
-    df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
+    _ensure_timestamp_datetime(df_processed)
     
     # Use pre-computed base_metric if available, otherwise compute it
     if "base_metric" not in df_processed.columns:
@@ -924,13 +964,31 @@ def build_time_series_tab(processed_df_data, process_time_range):
     )
 
 
-# Callback for process-specific tab content
+# Callback for process-specific tab content (lazy loading)
 @app.callback(
     Output("process-specific-content", "children"),
+    Input("results-tabs", "value"),
     Input("original-df-store", "data"),
     Input("process-time-range-store", "data"),
+    State("process-specific-content", "children"),
 )
-def build_process_specific_tab(original_df_data, process_time_range):
+def build_process_specific_tab(tab_value, original_df_data, process_time_range, current_children):
+    # Defer building until the tab is actually viewed to speed up initial load.
+    # Only build when: (a) user switches to this tab for first time, or (b) data reloaded while viewing this tab.
+    triggered_id = ctx.triggered_id
+    is_data_trigger = triggered_id in ("original-df-store", "process-time-range-store")
+    
+    if is_data_trigger and tab_value != "process-specific-tab":
+        # Data reloaded but tab not active — clear stale content so it rebuilds on next view
+        return []
+    
+    if triggered_id == "results-tabs":
+        # Tab switch: only build if no content yet (first view after data loaded)
+        if tab_value != "process-specific-tab":
+            return dash.no_update
+        if current_children:
+            return dash.no_update
+
     if not original_df_data or not process_time_range:
         return dbc.Alert(
             "No data available. Please load data using the Visualize button.",
@@ -950,7 +1008,7 @@ def build_process_specific_tab(original_df_data, process_time_range):
     
     # Convert stored data back to dataframe
     df_original = df_from_store(original_df_data)
-    df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
+    _ensure_timestamp_datetime(df_original)
     
     # Get unique metrics
     unique_metrics = sorted(df_original["metric"].unique().tolist())
@@ -1143,13 +1201,31 @@ def build_process_specific_tab(original_df_data, process_time_range):
     return html.Div(grid_rows)
 
 
-# Callback for comparative analysis tab content
+# Callback for comparative analysis tab content (lazy loading)
 @app.callback(
     Output("comparative-content", "children"),
+    Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    State("comparative-content", "children"),
 )
-def build_comparative_tab(processed_df_data, process_time_range):
+def build_comparative_tab(tab_value, processed_df_data, process_time_range, current_children):
+    # Defer building until the tab is actually viewed to speed up initial load.
+    # Only build when: (a) user switches to this tab for first time, or (b) data reloaded while viewing this tab.
+    triggered_id = ctx.triggered_id
+    is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
+    
+    if is_data_trigger and tab_value != "comparative-tab":
+        # Data reloaded but tab not active — clear stale content so it rebuilds on next view
+        return []
+    
+    if triggered_id == "results-tabs":
+        # Tab switch: only build if no content yet (first view after data loaded)
+        if tab_value != "comparative-tab":
+            return dash.no_update
+        if current_children:
+            return dash.no_update
+
     if not processed_df_data or not process_time_range:
         return dbc.Alert(
             "No data available. Please load data using the Visualize button.",
@@ -1158,7 +1234,7 @@ def build_comparative_tab(processed_df_data, process_time_range):
         )
 
     df_processed = df_from_store(processed_df_data)
-    df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
+    _ensure_timestamp_datetime(df_processed)
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
@@ -1558,7 +1634,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
         return fig
 
     df = df_from_store(original_df_data)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    _ensure_timestamp_datetime(df)
     dfm = df[df["metric"] == metric].copy()
 
     # Same string normalization as options callback
@@ -1811,7 +1887,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
-    df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
+    _ensure_timestamp_datetime(df_processed)
     
     # Get full time range from ALL data (before filtering) to fix x-axis
     full_time_min = df_processed["timestamp"].min()
@@ -1889,11 +1965,12 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
     share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
     fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
     
-    # Store filtered data for Y-axis rescaling callback
-    # Include metric_order to ensure consistent yaxis mapping
+    # Store filtered data for Y-axis rescaling callback using Parquet cache
+    # (much faster than JSON records for large datasets)
     df_for_store = df_filtered[["metric_id", "timestamp", "value"]].copy()
+    filtered_cache_id = cache_dataframe(df_for_store, prefix="ts_filtered") if not df_for_store.empty else None
     filtered_df_json = {
-        "data": df_for_store.to_dict('records') if not df_for_store.empty else None,
+        "cache_id": filtered_cache_id,
         "metric_order": metric_order  # Preserve the exact order used when creating figure
     }
     
@@ -1944,18 +2021,21 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
         return current_figure if current_figure else dash.no_update
     
     # Extract data and metric order from the store
-    if not isinstance(filtered_df_store, dict) or "data" not in filtered_df_store:
+    if not isinstance(filtered_df_store, dict) or "cache_id" not in filtered_df_store:
         return current_figure
     
-    data_records = filtered_df_store.get("data")
+    cache_id = filtered_df_store.get("cache_id")
     metric_order = filtered_df_store.get("metric_order", [])
     
-    if not data_records or not metric_order:
+    if not cache_id or not metric_order:
         return current_figure
     
-    # Load filtered data
-    df = pd.DataFrame(data_records)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    # Load filtered data from Parquet cache (instant from in-memory cache)
+    df = load_cached_dataframe(cache_id)
+    _ensure_timestamp_datetime(df)
+    
+    if df.empty:
+        return current_figure
     
     # Deep copy the figure to avoid modifying shared nested dicts
     updated_figure = copy.deepcopy(current_figure)
@@ -2113,13 +2193,13 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         return current_figure
     
     # Extract data and metric order from the store
-    if not isinstance(filtered_df_store, dict) or "data" not in filtered_df_store:
+    if not isinstance(filtered_df_store, dict) or "cache_id" not in filtered_df_store:
         return current_figure
     
-    data_records = filtered_df_store.get("data")
+    cache_id = filtered_df_store.get("cache_id")
     metric_order = filtered_df_store.get("metric_order", [])
     
-    if not data_records or not metric_order:
+    if not cache_id or not metric_order:
         return current_figure
     
     # Check for autorange resets (double-click to reset)
@@ -2134,8 +2214,8 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         
         # For memory metrics, we must actively reset Y-axis ranges and tick labels
         # because custom tickvals/ticktext prevent Plotly from auto-resetting properly
-        df = pd.DataFrame(data_records)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df = load_cached_dataframe(cache_id)
+        _ensure_timestamp_datetime(df)
         
         updated_figure = copy.deepcopy(current_figure)
         layout = updated_figure.get("layout", {})
@@ -2221,9 +2301,13 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
     if not xaxis_changes:
         return current_figure
     
-    # Load filtered data
-    df = pd.DataFrame(data_records)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    # Load filtered data from Parquet cache
+    df = load_cached_dataframe(cache_id)
+    _ensure_timestamp_datetime(df)
+    
+    if df.empty:
+        return current_figure
+    
     df_tz = df["timestamp"].dt.tz
     
     # Deep copy the figure to avoid modifying shared nested dicts
@@ -2365,7 +2449,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, processed_d
         return fig
 
     dfp = df_from_store(processed_df_data)
-    dfp["timestamp"] = pd.to_datetime(dfp["timestamp"])
+    _ensure_timestamp_datetime(dfp)
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
@@ -2629,7 +2713,7 @@ def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, 
         return None
     
     df_original = df_from_store(original_df_data)
-    df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
+    _ensure_timestamp_datetime(df_original)
     
     # Filter by metric (original df uses "metric" column, not "metric_id")
     dfm = df_original[df_original["metric"] == metric].copy()
@@ -2703,7 +2787,7 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
         return None
     
     dfp = df_from_store(processed_df_data)
-    dfp["timestamp"] = pd.to_datetime(dfp["timestamp"])
+    _ensure_timestamp_datetime(dfp)
     
     proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None

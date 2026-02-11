@@ -470,10 +470,20 @@ app.layout = dbc.Container(
                             id="loading-tab-content",
                             type="circle",
                             color="#88C0D0",
-                            children=html.Div(
-                                id="tab-content",
-                                style={"marginTop": "10px"},
-                            ),
+                            children=[
+                                html.Div(
+                                    id="time-series-content",
+                                    style={"display": "block", "marginTop": "10px"},
+                                ),
+                                html.Div(
+                                    id="process-specific-content",
+                                    style={"display": "none", "marginTop": "10px"},
+                                ),
+                                html.Div(
+                                    id="comparative-content",
+                                    style={"display": "none", "marginTop": "10px"},
+                                ),
+                            ],
                             style={"minHeight": "200px"},
                         ),
                     ],
@@ -738,81 +748,135 @@ def load_and_visualize(n_clicks, directory_path):
         )
         return status_msg, None, None, None
 
+# Callback to toggle tab visibility
 @app.callback(
-    Output("tab-content", "children"),
+    Output("time-series-content", "style"),
+    Output("process-specific-content", "style"),
+    Output("comparative-content", "style"),
     Input("results-tabs", "value"),
+)
+def toggle_tab_visibility(tab_value):
+    """Toggle tab panel visibility. No content is re-created."""
+    hidden = {"display": "none", "marginTop": "10px"}
+    visible = {"display": "block", "marginTop": "10px"}
+    if tab_value == "time-series-tab":
+        return visible, hidden, hidden
+    elif tab_value == "process-specific-tab":
+        return hidden, visible, hidden
+    else:
+        return hidden, hidden, visible
+
+
+# Callback for time series tab content
+@app.callback(
+    Output("time-series-content", "children"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
-    Input("original-df-store", "data"),
 )
-def update_tab_content(tab_value, processed_df_data, process_time_range, original_df_data):
-    if tab_value == "time-series-tab":
-        # First tab: All time series as scrollable subplots with filtering
-        if not processed_df_data:
-            return dbc.Alert(
-                "No data available. Please load data using the Visualize button.",
-                color="warning",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-        
-        # Convert stored data back to dataframe
-        df_processed = df_from_store(processed_df_data)
-        df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
-        
-        # Use pre-computed base_metric if available, otherwise compute it
-        if "base_metric" not in df_processed.columns:
-            df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
-        
-        # Get unique base metrics to determine available categories
-        base_metrics = df_processed["base_metric"].unique()
-        
-        # Determine available categories
-        available_categories = []
-        
-        # Define which metrics belong to which category
-        energy_metrics = set()
-        memory_metrics = set()
-        kernel_cpu_time_metrics = set()
-        all_categorized = set()
-        
-        for m in base_metrics:
-            m_lower = m.lower()
-            if "energy" in m_lower or "rapl" in m_lower or "attributed" in m_lower:
-                energy_metrics.add(m)
-                all_categorized.add(m)
-            elif "mem" in m_lower or "memory" in m_lower or "kb" in m_lower:
-                memory_metrics.add(m)
-                all_categorized.add(m)
-            elif "kernel_cpu_time" in m:
-                kernel_cpu_time_metrics.add(m)
-                all_categorized.add(m)
-        
-        # Add categories if they have metrics
-        if energy_metrics:
-            available_categories.append({"label": "Energy", "value": "energy"})
-        if memory_metrics:
-            available_categories.append({"label": "Memory", "value": "memory"})
-        if kernel_cpu_time_metrics:
-            available_categories.append({"label": "Kernel CPU Time", "value": "kernel_cpu_time"})
-        
-        # Add miscellaneous category for metrics not in other categories
-        miscellaneous_metrics = set(base_metrics) - all_categorized
-        if miscellaneous_metrics:
-            available_categories.append({"label": "Miscellaneous", "value": "miscellaneous"})
-        
-        # Get unique CPU cores for kernel_cpu_time (will be populated in callback)
-        # This is just for initial setup, actual extraction happens in callback
-        
-        return dbc.Card(
-            [
-                dbc.CardBody(
-                    [
-                        dbc.Row(
-                            [
-                                dbc.Col(
+def build_time_series_tab(processed_df_data, process_time_range):
+    if not processed_df_data:
+        return dbc.Alert(
+            "No data available. Please load data using the Visualize button.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
+    
+    # Convert stored data back to dataframe
+    df_processed = df_from_store(processed_df_data)
+    df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
+    
+    # Use pre-computed base_metric if available, otherwise compute it
+    if "base_metric" not in df_processed.columns:
+        df_processed["base_metric"] = df_processed["metric_id"].str.split("_R_").str[0]
+    
+    # Get unique base metrics to determine available categories
+    base_metrics = df_processed["base_metric"].unique()
+    
+    # Determine available categories
+    available_categories = []
+    
+    # Define which metrics belong to which category
+    energy_metrics = set()
+    memory_metrics = set()
+    kernel_cpu_time_metrics = set()
+    all_categorized = set()
+    
+    for m in base_metrics:
+        m_lower = m.lower()
+        if "energy" in m_lower or "rapl" in m_lower or "attributed" in m_lower:
+            energy_metrics.add(m)
+            all_categorized.add(m)
+        elif "mem" in m_lower or "memory" in m_lower or "kb" in m_lower:
+            memory_metrics.add(m)
+            all_categorized.add(m)
+        elif "kernel_cpu_time" in m:
+            kernel_cpu_time_metrics.add(m)
+            all_categorized.add(m)
+    
+    # Add categories if they have metrics
+    if energy_metrics:
+        available_categories.append({"label": "Energy", "value": "energy"})
+    if memory_metrics:
+        available_categories.append({"label": "Memory", "value": "memory"})
+    if kernel_cpu_time_metrics:
+        available_categories.append({"label": "Kernel CPU Time", "value": "kernel_cpu_time"})
+    
+    # Add miscellaneous category for metrics not in other categories
+    miscellaneous_metrics = set(base_metrics) - all_categorized
+    if miscellaneous_metrics:
+        available_categories.append({"label": "Miscellaneous", "value": "miscellaneous"})
+    
+    return dbc.Card(
+        [
+            dbc.CardBody(
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.Label(
+                                        "Metric Category:",
+                                        style={
+                                            "color": "#ECEFF4",
+                                            "marginRight": "10px",
+                                            "fontSize": "1rem",
+                                            "fontWeight": "600",
+                                        }
+                                    ),
+                                    dcc.Dropdown(
+                                        id="metric-category-dropdown",
+                                        options=available_categories,
+                                        placeholder="Select metric category",
+                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        className="dark-dropdown",
+                                        clearable=True,
+                                    ),
+                                ],
+                                width=12,
+                                lg=4,
+                                className="mb-3",
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div(id="cpu-core-selector"),
+                                    dcc.Dropdown(
+                                        id="cpu-core-dropdown",
+                                        options=[],
+                                        placeholder="Select CPU core",
+                                        style={"display": "none", "backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        className="dark-dropdown",
+                                        clearable=False,
+                                    ),
+                                ],
+                                width=12,
+                                lg=3,
+                                className="mb-3",
+                            ),
+                            dbc.Col(
+                                html.Div(
                                     [
                                         html.Label(
-                                            "Metric Category:",
+                                            "Y-Axis Options:",
                                             style={
                                                 "color": "#ECEFF4",
                                                 "marginRight": "10px",
@@ -820,432 +884,404 @@ def update_tab_content(tab_value, processed_df_data, process_time_range, origina
                                                 "fontWeight": "600",
                                             }
                                         ),
-                                        dcc.Dropdown(
-                                            id="metric-category-dropdown",
-                                            options=available_categories,
-                                            placeholder="Select metric category",
-                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                            className="dark-dropdown",
-                                            clearable=True,
-                                        ),
-                                    ],
-                                    width=12,
-                                    lg=4,
-                                    className="mb-3",
-                                ),
-                                dbc.Col(
-                                    [
-                                        html.Div(id="cpu-core-selector"),
-                                        dcc.Dropdown(
-                                            id="cpu-core-dropdown",
-                                            options=[],
-                                            placeholder="Select CPU core",
-                                            style={"display": "none", "backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                            className="dark-dropdown",
-                                            clearable=False,
-                                        ),
-                                    ],
-                                    width=12,
-                                    lg=3,
-                                    className="mb-3",
-                                ),
-                                dbc.Col(
-                                    html.Div(
-                                        [
-                                            html.Label(
-                                                "Y-Axis Options:",
-                                                style={
-                                                    "color": "#ECEFF4",
-                                                    "marginRight": "10px",
-                                                    "fontSize": "1rem",
-                                                    "fontWeight": "600",
-                                                }
-                                            ),
-                                            dcc.Checklist(
-                                                id="shared-yaxis-toggle",
-                                                options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
-                                                value=[],
-                                                style={"color": "#ECEFF4", "fontSize": "0.9rem"},
-                                                inputStyle={"marginRight": "8px"},
-                                            ),
-                                        ],
-                                        id="yaxis-options-container",
-                                        style={"display": "none"},  # Hidden by default, shown when valid category selected
-                                    ),
-                                    width=12,
-                                    lg=5,
-                                    className="mb-3",
-                                    style={"display": "flex", "flexDirection": "column", "justifyContent": "center"},
-                                ),
-                            ],
-                            className="mb-4",
-                        ),
-                        html.Div(
-                            id="timeseries-plot-container",
-                            style={
-                                "height": "80vh",
-                                "overflowY": "auto",
-                                "overflowX": "hidden",
-                                "padding": "15px",
-                                "maxHeight": "80vh",
-                                "width": "100%",
-                            },
-                        ),
-                    ],
-                    style={"padding": "25px", "backgroundColor": "#3B4252"},
-                ),
-            ],
-            color="dark",
-            inverse=True,
-            style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
-        )
-
-    elif tab_value == "process-specific-tab":
-        # Process-specific tab: 2x2 grid with data truncated to process active period
-        if not original_df_data or not process_time_range:
-            return dbc.Alert(
-                "No data available. Please load data using the Visualize button.",
-                color="warning",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-        
-        proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
-        proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
-
-        if proc_start is None or proc_end is None:
-            return dbc.Alert(
-                "Process time range not available.",
-                color="warning",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-        
-        # Convert stored data back to dataframe
-        df_original = df_from_store(original_df_data)
-        df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
-        
-        # Get unique metrics
-        unique_metrics = sorted(df_original["metric"].unique().tolist())
-        
-        # Create 2x2 grid layout using dbc.Row and dbc.Col
-        # Use column-based layout for filters to keep plot positions constant
-        grid_rows = []
-        for i in range(2):
-            row_children = []
-            for j in range(2):
-                plot_id = {"type": "grid-plot", "index": f"{i}-{j}"}
-                metric_dropdown_id = {"type": "metric-dropdown", "index": f"{i}-{j}"}
-                
-                row_children.append(
-                    dbc.Col(
-                        [
-                            dbc.Card(
-                                [
-                                    dbc.CardBody(
-                                        [
-                                            # Metric dropdown - full width
-                                            html.Div(
-                                                [
-                                                    html.Label(
-                                                        "Metric:",
-                                                        style={
-                                                            "color": "#ECEFF4",
-                                                            "fontSize": "0.9rem",
-                                                            "fontWeight": "500",
-                                                            "marginBottom": "4px",
-                                                        }
-                                                    ),
-                                                    dcc.Dropdown(
-                                                        id=metric_dropdown_id,
-                                                        options=[{"label": m, "value": m} for m in unique_metrics],
-                                                        placeholder="Select metric",
-                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                                        className="dark-dropdown",
-                                                        clearable=True,
-                                                    ),
-                                                ],
-                                                style={"marginBottom": "8px"}
-                                            ),
-                                            # Filter dropdowns in a single compact row
-                                            # Fixed height container to keep plot position constant
-                                            html.Div(
-                                                [
-                                                    dbc.Row(
-                                                        [
-                                                            # Resource Kind
-                                                            dbc.Col(
-                                                                html.Div(
-                                                                    [
-                                                                        html.Label("R.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
-                                                                        dcc.Dropdown(
-                                                                            id={"type": "resource-kind-dropdown", "index": f"{i}-{j}"},
-                                                                            options=[],
-                                                                            value=None,
-                                                                            placeholder="-",
-                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
-                                                                            className="dark-dropdown compact-dropdown",
-                                                                            clearable=False,
-                                                                        ),
-                                                                    ],
-                                                                    id={"type": "rk-container", "index": f"{i}-{j}"},
-                                                                    style={"visibility": "hidden"},
-                                                                ),
-                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
-                                                            ),
-                                                            # Resource ID
-                                                            dbc.Col(
-                                                                html.Div(
-                                                                    [
-                                                                        html.Label("R.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
-                                                                        dcc.Dropdown(
-                                                                            id={"type": "resource-id-dropdown", "index": f"{i}-{j}"},
-                                                                            options=[],
-                                                                            value=None,
-                                                                            placeholder="-",
-                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
-                                                                            className="dark-dropdown compact-dropdown",
-                                                                            clearable=False,
-                                                                        ),
-                                                                    ],
-                                                                    id={"type": "rid-container", "index": f"{i}-{j}"},
-                                                                    style={"visibility": "hidden"},
-                                                                ),
-                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
-                                                            ),
-                                                            # Consumer Kind
-                                                            dbc.Col(
-                                                                html.Div(
-                                                                    [
-                                                                        html.Label("C.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
-                                                                        dcc.Dropdown(
-                                                                            id={"type": "consumer-kind-dropdown", "index": f"{i}-{j}"},
-                                                                            options=[],
-                                                                            value=None,
-                                                                            placeholder="-",
-                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
-                                                                            className="dark-dropdown compact-dropdown",
-                                                                            clearable=False,
-                                                                        ),
-                                                                    ],
-                                                                    id={"type": "ck-container", "index": f"{i}-{j}"},
-                                                                    style={"visibility": "hidden"},
-                                                                ),
-                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
-                                                            ),
-                                                            # Consumer ID
-                                                            dbc.Col(
-                                                                html.Div(
-                                                                    [
-                                                                        html.Label("C.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
-                                                                        dcc.Dropdown(
-                                                                            id={"type": "consumer-id-dropdown", "index": f"{i}-{j}"},
-                                                                            options=[],
-                                                                            value=None,
-                                                                            placeholder="-",
-                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
-                                                                            className="dark-dropdown compact-dropdown",
-                                                                            clearable=False,
-                                                                        ),
-                                                                    ],
-                                                                    id={"type": "cid-container", "index": f"{i}-{j}"},
-                                                                    style={"visibility": "hidden"},
-                                                                ),
-                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
-                                                            ),
-                                                            # Late Attributes
-                                                            dbc.Col(
-                                                                html.Div(
-                                                                    [
-                                                                        html.Label("Attr", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
-                                                                        dcc.Dropdown(
-                                                                            id={"type": "late-attr-dropdown", "index": f"{i}-{j}"},
-                                                                            options=[],
-                                                                            value=None,
-                                                                            placeholder="-",
-                                                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
-                                                                            className="dark-dropdown compact-dropdown",
-                                                                            clearable=False,
-                                                                        ),
-                                                                    ],
-                                                                    id={"type": "la-container", "index": f"{i}-{j}"},
-                                                                    style={"visibility": "hidden"},
-                                                                ),
-                                                                style={"paddingRight": "2px", "paddingLeft": "2px"},
-                                                            ),
-                                                        ],
-                                                        className="g-0",
-                                                    ),
-                                                ],
-                                                style={"minHeight": "50px", "marginBottom": "8px"},  # Fixed height for filter area
-                                            ),
-                                            dcc.Graph(id=plot_id, style={"height": "320px"}),
-                                            # Download CSV button
-                                            html.Div(
-                                                [
-                                                    dbc.Button(
-                                                        "📥 Download CSV",
-                                                        id={"type": "grid-download-btn", "index": f"{i}-{j}"},
-                                                        n_clicks=0,
-                                                        color="primary",
-                                                        size="sm",
-                                                        style={
-                                                            "fontSize": "0.75rem",
-                                                        },
-                                                    ),
-                                                    dcc.Download(id={"type": "grid-download", "index": f"{i}-{j}"}),
-                                                ],
-                                                style={"textAlign": "right", "marginTop": "25px", "paddingTop": "15px"},
-                                            ),
-                                        ],
-                                        style={"padding": "12px", "backgroundColor": "#3B4252"},
-                                    ),
-                                ],
-                                color="dark",
-                                inverse=True,
-                                style={"height": "100%", "marginBottom": "10px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
-                            ),
-                        ],
-                        width=12,
-                        lg=6,
-                        className="mb-2",
-                    )
-                )
-            grid_rows.append(dbc.Row(row_children, className="mb-2"))
-        
-        return html.Div(grid_rows)
-
-    else:  # Comparative tab: X-Y metric relationship plot
-        if not processed_df_data or not process_time_range:
-            return dbc.Alert(
-                "No data available. Please load data using the Visualize button.",
-                color="warning",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-
-        df_processed = df_from_store(processed_df_data)
-        df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
-
-        proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
-        proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
-
-        if proc_start is None or proc_end is None:
-            return dbc.Alert(
-                "Process time range not available.",
-                color="warning",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-
-        # Only allow choosing metrics that actually have samples inside the process window
-        df_process_level = df_processed[(df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)].copy()
-
-        if df_process_level.empty:
-            return dbc.Alert(
-                "No samples inside process active window.",
-                color="warning",
-                style={"margin": "0", "fontWeight": "bold"},
-            )
-
-        # Metric options 
-        metric_ids = sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
-        if len(metric_ids) < 2:
-            return dbc.Alert("Need at least 2 metrics inside process window.", color="warning", style={"margin": "0", "fontWeight": "bold"})
-
-        return dbc.Card(
-            [
-                dbc.CardBody(
-                    [
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        html.Label(
-                                            "Metric 1 (X-axis / Left Y-axis):",
-                                            style={"color": "#ECEFF4", "fontWeight": "600"}
-                                        ),
-                                        dcc.Dropdown(
-                                            id="ps-xmetric-dropdown",
-                                            options=[{"label": m, "value": m} for m in metric_ids],
-                                            value=metric_ids[0],
-                                            clearable=False,
-                                            persistence=True,
-                                            className="dark-dropdown",
-                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                        ),
-                                    ],
-                                    width=12, lg=6, className="mb-3",
-                                ),
-                                dbc.Col(
-                                    [
-                                        html.Label(
-                                            "Metric 2 (Y-axis / Right Y-axis):",
-                                            style={"color": "#ECEFF4", "fontWeight": "600"}
-                                        ),
-                                        dcc.Dropdown(
-                                            id="ps-ymetric-dropdown",
-                                            options=[{"label": m, "value": m} for m in metric_ids],
-                                            value=metric_ids[1],
-                                            clearable=False,
-                                            persistence=True,
-                                            className="dark-dropdown",
-                                            style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
-                                        ),
-                                    ],
-                                    width=12, lg=6, className="mb-3",
-                                ),
-                            ]
-                        ),
-                        # Visualization mode info and scatter toggle
-                        dbc.Row(
-                            [
-                                dbc.Col(
-                                    [
-                                        html.Div(
-                                            id="comparative-mode-info",
-                                            style={"marginBottom": "10px"},
-                                        ),
-                                    ],
-                                    width=12, lg=8, className="mb-2",
-                                ),
-                                dbc.Col(
-                                    [
-                                        dbc.Checklist(
-                                            id="scatter-toggle",
-                                            options=[{"label": " Show Scatter Plot (X-Y relationship)", "value": "scatter"}],
+                                        dcc.Checklist(
+                                            id="shared-yaxis-toggle",
+                                            options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
                                             value=[],
-                                            inline=True,
                                             style={"color": "#ECEFF4", "fontSize": "0.9rem"},
                                             inputStyle={"marginRight": "8px"},
                                         ),
                                     ],
-                                    width=12, lg=4, className="mb-2",
-                                    style={"textAlign": "right"},
+                                    id="yaxis-options-container",
+                                    style={"display": "none"},  # Hidden by default, shown when valid category selected
                                 ),
-                            ],
-                            className="mb-2",
-                        ),
-                        dcc.Graph(id="ps-xy-graph", style={"height": "65vh"}),
-                        # Download CSV button
-                        html.Div(
+                                width=12,
+                                lg=5,
+                                className="mb-3",
+                                style={"display": "flex", "flexDirection": "column", "justifyContent": "center"},
+                            ),
+                        ],
+                        className="mb-4",
+                    ),
+                    html.Div(
+                        id="timeseries-plot-container",
+                        style={
+                            "height": "80vh",
+                            "overflowY": "auto",
+                            "overflowX": "hidden",
+                            "padding": "15px",
+                            "maxHeight": "80vh",
+                            "width": "100%",
+                        },
+                    ),
+                ],
+                style={"padding": "25px", "backgroundColor": "#3B4252"},
+            ),
+        ],
+        color="dark",
+        inverse=True,
+        style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+    )
+
+
+# Callback for process-specific tab content
+@app.callback(
+    Output("process-specific-content", "children"),
+    Input("original-df-store", "data"),
+    Input("process-time-range-store", "data"),
+)
+def build_process_specific_tab(original_df_data, process_time_range):
+    if not original_df_data or not process_time_range:
+        return dbc.Alert(
+            "No data available. Please load data using the Visualize button.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
+    
+    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+
+    if proc_start is None or proc_end is None:
+        return dbc.Alert(
+            "Process time range not available.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
+    
+    # Convert stored data back to dataframe
+    df_original = df_from_store(original_df_data)
+    df_original["timestamp"] = pd.to_datetime(df_original["timestamp"])
+    
+    # Get unique metrics
+    unique_metrics = sorted(df_original["metric"].unique().tolist())
+    
+    # Create 2x2 grid layout using dbc.Row and dbc.Col
+    # Use column-based layout for filters to keep plot positions constant
+    grid_rows = []
+    for i in range(2):
+        row_children = []
+        for j in range(2):
+            plot_id = {"type": "grid-plot", "index": f"{i}-{j}"}
+            metric_dropdown_id = {"type": "metric-dropdown", "index": f"{i}-{j}"}
+            
+            row_children.append(
+                dbc.Col(
+                    [
+                        dbc.Card(
                             [
-                                dbc.Button(
-                                    "📥 Download CSV",
-                                    id="xy-download-btn",
-                                    n_clicks=0,
-                                    color="primary",
-                                    size="sm",
-                                    style={"marginTop": "10px"},
+                                dbc.CardBody(
+                                    [
+                                        # Metric dropdown - full width
+                                        html.Div(
+                                            [
+                                                html.Label(
+                                                    "Metric:",
+                                                    style={
+                                                        "color": "#ECEFF4",
+                                                        "fontSize": "0.9rem",
+                                                        "fontWeight": "500",
+                                                        "marginBottom": "4px",
+                                                    }
+                                                ),
+                                                dcc.Dropdown(
+                                                    id=metric_dropdown_id,
+                                                    options=[{"label": m, "value": m} for m in unique_metrics],
+                                                    placeholder="Select metric",
+                                                    style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                    className="dark-dropdown",
+                                                    clearable=True,
+                                                ),
+                                            ],
+                                            style={"marginBottom": "8px"}
+                                        ),
+                                        # Filter dropdowns in a single compact row
+                                        # Fixed height container to keep plot position constant
+                                        html.Div(
+                                            [
+                                                dbc.Row(
+                                                    [
+                                                        # Resource Kind
+                                                        dbc.Col(
+                                                            html.Div(
+                                                                [
+                                                                    html.Label("R.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "resource-kind-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="-",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        className="dark-dropdown compact-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "rk-container", "index": f"{i}-{j}"},
+                                                                style={"visibility": "hidden"},
+                                                            ),
+                                                            style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                        ),
+                                                        # Resource ID
+                                                        dbc.Col(
+                                                            html.Div(
+                                                                [
+                                                                    html.Label("R.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "resource-id-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="-",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        className="dark-dropdown compact-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "rid-container", "index": f"{i}-{j}"},
+                                                                style={"visibility": "hidden"},
+                                                            ),
+                                                            style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                        ),
+                                                        # Consumer Kind
+                                                        dbc.Col(
+                                                            html.Div(
+                                                                [
+                                                                    html.Label("C.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "consumer-kind-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="-",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        className="dark-dropdown compact-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "ck-container", "index": f"{i}-{j}"},
+                                                                style={"visibility": "hidden"},
+                                                            ),
+                                                            style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                        ),
+                                                        # Consumer ID
+                                                        dbc.Col(
+                                                            html.Div(
+                                                                [
+                                                                    html.Label("C.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "consumer-id-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="-",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        className="dark-dropdown compact-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "cid-container", "index": f"{i}-{j}"},
+                                                                style={"visibility": "hidden"},
+                                                            ),
+                                                            style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                        ),
+                                                        # Late Attributes
+                                                        dbc.Col(
+                                                            html.Div(
+                                                                [
+                                                                    html.Label("Attr", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    dcc.Dropdown(
+                                                                        id={"type": "late-attr-dropdown", "index": f"{i}-{j}"},
+                                                                        options=[],
+                                                                        value=None,
+                                                                        placeholder="-",
+                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        className="dark-dropdown compact-dropdown",
+                                                                        clearable=False,
+                                                                    ),
+                                                                ],
+                                                                id={"type": "la-container", "index": f"{i}-{j}"},
+                                                                style={"visibility": "hidden"},
+                                                            ),
+                                                            style={"paddingRight": "2px", "paddingLeft": "2px"},
+                                                        ),
+                                                    ],
+                                                    className="g-0",
+                                                ),
+                                            ],
+                                            style={"minHeight": "50px", "marginBottom": "8px"},  # Fixed height for filter area
+                                        ),
+                                        dcc.Graph(id=plot_id, style={"height": "320px"}),
+                                        # Download CSV button
+                                        html.Div(
+                                            [
+                                                dbc.Button(
+                                                    "📥 Download CSV",
+                                                    id={"type": "grid-download-btn", "index": f"{i}-{j}"},
+                                                    n_clicks=0,
+                                                    color="primary",
+                                                    size="sm",
+                                                    style={
+                                                        "fontSize": "0.75rem",
+                                                    },
+                                                ),
+                                                dcc.Download(id={"type": "grid-download", "index": f"{i}-{j}"}),
+                                            ],
+                                            style={"textAlign": "right", "marginTop": "25px", "paddingTop": "15px"},
+                                        ),
+                                    ],
+                                    style={"padding": "12px", "backgroundColor": "#3B4252"},
                                 ),
-                                dcc.Download(id="xy-download"),
                             ],
-                            style={"textAlign": "right", "marginTop": "5px"},
+                            color="dark",
+                            inverse=True,
+                            style={"height": "100%", "marginBottom": "10px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
                         ),
                     ],
-                    style={"padding": "25px", "backgroundColor": "#3B4252"},
+                    width=12,
+                    lg=6,
+                    className="mb-2",
                 )
-            ],
-            color="dark",
-            inverse=True,
-            style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+            )
+        grid_rows.append(dbc.Row(row_children, className="mb-2"))
+    
+    return html.Div(grid_rows)
+
+
+# Callback for comparative analysis tab content
+@app.callback(
+    Output("comparative-content", "children"),
+    Input("processed-df-store", "data"),
+    Input("process-time-range-store", "data"),
+)
+def build_comparative_tab(processed_df_data, process_time_range):
+    if not processed_df_data or not process_time_range:
+        return dbc.Alert(
+            "No data available. Please load data using the Visualize button.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
         )
+
+    df_processed = df_from_store(processed_df_data)
+    df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"])
+
+    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+
+    if proc_start is None or proc_end is None:
+        return dbc.Alert(
+            "Process time range not available.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
+
+    # Only allow choosing metrics that actually have samples inside the process window
+    df_process_level = df_processed[(df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)].copy()
+
+    if df_process_level.empty:
+        return dbc.Alert(
+            "No samples inside process active window.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
+
+    # Metric options 
+    metric_ids = sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
+    if len(metric_ids) < 2:
+        return dbc.Alert("Need at least 2 metrics inside process window.", color="warning", style={"margin": "0", "fontWeight": "bold"})
+
+    return dbc.Card(
+        [
+            dbc.CardBody(
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.Label(
+                                        "Metric 1 (X-axis / Left Y-axis):",
+                                        style={"color": "#ECEFF4", "fontWeight": "600"}
+                                    ),
+                                    dcc.Dropdown(
+                                        id="ps-xmetric-dropdown",
+                                        options=[{"label": m, "value": m} for m in metric_ids],
+                                        value=metric_ids[0],
+                                        clearable=False,
+                                        persistence=True,
+                                        className="dark-dropdown",
+                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                    ),
+                                ],
+                                width=12, lg=6, className="mb-3",
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Label(
+                                        "Metric 2 (Y-axis / Right Y-axis):",
+                                        style={"color": "#ECEFF4", "fontWeight": "600"}
+                                    ),
+                                    dcc.Dropdown(
+                                        id="ps-ymetric-dropdown",
+                                        options=[{"label": m, "value": m} for m in metric_ids],
+                                        value=metric_ids[1],
+                                        clearable=False,
+                                        persistence=True,
+                                        className="dark-dropdown",
+                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                    ),
+                                ],
+                                width=12, lg=6, className="mb-3",
+                            ),
+                        ]
+                    ),
+                    # Visualization mode info and scatter toggle
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.Div(
+                                        id="comparative-mode-info",
+                                        style={"marginBottom": "10px"},
+                                    ),
+                                ],
+                                width=12, lg=8, className="mb-2",
+                            ),
+                            dbc.Col(
+                                [
+                                    dbc.Checklist(
+                                        id="scatter-toggle",
+                                        options=[{"label": " Show Scatter Plot (X-Y relationship)", "value": "scatter"}],
+                                        value=[],
+                                        inline=True,
+                                        style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                        inputStyle={"marginRight": "8px"},
+                                    ),
+                                ],
+                                width=12, lg=4, className="mb-2",
+                                style={"textAlign": "right"},
+                            ),
+                        ],
+                        className="mb-2",
+                    ),
+                    dcc.Graph(id="ps-xy-graph", style={"height": "65vh"}),
+                    # Download CSV button
+                    html.Div(
+                        [
+                            dbc.Button(
+                                "📥 Download CSV",
+                                id="xy-download-btn",
+                                n_clicks=0,
+                                color="primary",
+                                size="sm",
+                                style={"marginTop": "10px"},
+                            ),
+                            dcc.Download(id="xy-download"),
+                        ],
+                        style={"textAlign": "right", "marginTop": "5px"},
+                    ),
+                ],
+                style={"padding": "25px", "backgroundColor": "#3B4252"},
+            )
+        ],
+        color="dark",
+        inverse=True,
+        style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+    )
 
 # Callback to update the comparative mode info based on selected metrics
 @app.callback(

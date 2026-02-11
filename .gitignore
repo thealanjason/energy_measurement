@@ -2,3 +2,5 @@
 .DS_Store
 __pycache__/
 **/05_smaller_polling/**
+# Parquet sidecar cache files generated alongside CSVs for fast re-loading
+**/experiments/**/*.parquet

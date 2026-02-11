@@ -311,12 +311,15 @@ app.layout = dbc.Container(
                                                     debounce=True,
                                                     style={
                                                         "width": "100%",
-                                                        "padding": "12px",
+                                                        "padding": "12px 14px",
                                                         "borderRadius": "8px",
                                                         "border": "2px solid #5E81AC",
                                                         "backgroundColor": "#434C5E",
                                                         "color": "#ECEFF4",
                                                         "fontSize": "1rem",
+                                                        "lineHeight": "1.5",
+                                                        "height": "auto",
+                                                        "overflow": "visible",
                                                     },
                                                 ),
                                                 html.Div(

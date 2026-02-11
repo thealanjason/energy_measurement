@@ -1361,8 +1361,10 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
     valid_categories = ["energy", "memory", "kernel_cpu_time"]
     
     if selected_category in valid_categories:
-        # Show the Y-axis options
-        return {"display": "flex", "flexDirection": "column"}, current_toggle_value
+        # Show the Y-axis options but do NOT re-emit the toggle value
+        # Using dash.no_update avoids triggering update_yaxis_on_toggle during category switches,
+        # which would cause a race condition where the toggle callback reads stale figure/store data
+        return {"display": "flex", "flexDirection": "column"}, dash.no_update
     else:
         # Hide and reset the toggle for miscellaneous or no selection
         return {"display": "none"}, []
@@ -1654,34 +1656,63 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
 
 
 # Callback to capture zoom events from grid plots and update shared x-range
+# Uses ctx.triggered_id to identify which specific plot the user interacted with
 @app.callback(
     Output("grid-shared-xrange-store", "data"),
-    Input({"type": "grid-plot", "index": ALL}, "relayoutData"),
+    Input({"type": "grid-plot", "index": "0-0"}, "relayoutData"),
+    Input({"type": "grid-plot", "index": "0-1"}, "relayoutData"),
+    Input({"type": "grid-plot", "index": "1-0"}, "relayoutData"),
+    Input({"type": "grid-plot", "index": "1-1"}, "relayoutData"),
     State("grid-shared-xrange-store", "data"),
     prevent_initial_call=True,
 )
-def sync_grid_plot_zoom(relayout_data_list, current_shared_range):
+def sync_grid_plot_zoom(rd_00, rd_01, rd_10, rd_11, current_shared_range):
     """Sync zoom across all grid plots by capturing relayoutData and updating shared x-range."""
-    if not relayout_data_list:
-        return current_shared_range
+    # Identify which plot triggered this callback
+    triggered = ctx.triggered_id
+    if not triggered:
+        return dash.no_update
     
-    # Find which plot triggered the callback and extract x-range
-    for relayout_data in relayout_data_list:
-        if relayout_data is None:
-            continue
-        
-        # Check for zoom event (xaxis.range)
-        if "xaxis.range[0]" in relayout_data and "xaxis.range[1]" in relayout_data:
-            return {
-                "x0": relayout_data["xaxis.range[0]"],
-                "x1": relayout_data["xaxis.range[1]"],
-            }
-        
-        # Check for autorange/reset event (double-click to reset)
-        if "xaxis.autorange" in relayout_data and relayout_data["xaxis.autorange"]:
-            return {"autorange": True}  # Signal to reset all plots to auto range
+    # Map triggered id to the corresponding relayoutData
+    relayout_map = {
+        "0-0": rd_00,
+        "0-1": rd_01,
+        "1-0": rd_10,
+        "1-1": rd_11,
+    }
     
-    return current_shared_range
+    # Get the index from the triggered component
+    if isinstance(triggered, dict):
+        triggered_index = triggered.get("index")
+    else:
+        return dash.no_update
+    
+    relayout_data = relayout_map.get(triggered_index)
+    if not relayout_data:
+        return dash.no_update
+    
+    # Check for zoom event (xaxis.range)
+    if "xaxis.range[0]" in relayout_data and "xaxis.range[1]" in relayout_data:
+        new_range = {
+            "x0": relayout_data["xaxis.range[0]"],
+            "x1": relayout_data["xaxis.range[1]"],
+        }
+        # Avoid re-triggering if the range hasn't changed (prevents infinite loop)
+        if (current_shared_range and 
+            not current_shared_range.get("autorange") and
+            current_shared_range.get("x0") == new_range["x0"] and 
+            current_shared_range.get("x1") == new_range["x1"]):
+            return dash.no_update
+        return new_range
+    
+    # Check for autorange/reset event (double-click to reset)
+    if "xaxis.autorange" in relayout_data and relayout_data["xaxis.autorange"]:
+        # Avoid re-triggering if already in autorange state
+        if current_shared_range and current_shared_range.get("autorange"):
+            return dash.no_update
+        return {"autorange": True}
+    
+    return dash.no_update
 
 
 # Callback to apply shared x-range to all grid plots
@@ -1928,8 +1959,18 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
     if visible_data.empty:
         return current_figure
     
-    # Check if this is a memory category (check first metric)
+    # Determine the correct category from the actual metric data
     is_memory_category = metric_order and is_memory_metric(metric_order[0])
+    
+    # Determine the correct Y-axis label from the actual data
+    if is_memory_category:
+        y_axis_label = "Value (B)"
+    elif metric_order and get_metric_unit(metric_order[0]) == "J":
+        y_axis_label = "Value (J)"
+    elif metric_order and get_metric_unit(metric_order[0]) == "ms":
+        y_axis_label = "Value (ms)"
+    else:
+        y_axis_label = "Value"
     
     if share_yaxis:
         # Calculate global Y-range across ALL visible data
@@ -1960,12 +2001,14 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
             if yaxis_key in layout:
                 layout[yaxis_key]["range"] = [calc_min, calc_max]
                 layout[yaxis_key]["autorange"] = False
+                # Ensure correct Y-axis title
+                layout[yaxis_key]["title"] = {"text": y_axis_label}
                 # Apply consistent tick formatting for memory metrics
                 if is_memory_category and shared_tickvals is not None:
                     layout[yaxis_key]["tickvals"] = shared_tickvals
                     layout[yaxis_key]["ticktext"] = shared_ticktext
-                elif is_memory_category:
-                    # Clear old tick values if no new ones (shouldn't happen but safety)
+                else:
+                    # Clear custom tick values for non-memory metrics
                     layout[yaxis_key].pop("tickvals", None)
                     layout[yaxis_key].pop("ticktext", None)
     else:
@@ -1998,12 +2041,17 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
             if yaxis_key in layout:
                 layout[yaxis_key]["range"] = [calc_min, calc_max]
                 layout[yaxis_key]["autorange"] = False
+                # Ensure correct Y-axis title
+                layout[yaxis_key]["title"] = {"text": y_axis_label}
                 
-                # Update tick formatting for memory metrics
+                # Update tick formatting for memory metrics, clear for non-memory
                 if is_memory_category:
                     tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
                     layout[yaxis_key]["tickvals"] = tickvals
                     layout[yaxis_key]["ticktext"] = ticktext
+                else:
+                    layout[yaxis_key].pop("tickvals", None)
+                    layout[yaxis_key].pop("ticktext", None)
     
     updated_figure["layout"] = layout
     return updated_figure
@@ -2039,10 +2087,68 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         return current_figure
     
     # Check for autorange resets (double-click to reset)
-    for key in relayout_data:
-        if 'autorange' in key or 'autosize' in key:
-            # User double-clicked to reset - return current figure, Plotly handles reset
+    is_reset = any('autorange' in key or 'autosize' in key for key in relayout_data)
+    if is_reset:
+        # Determine the category from the actual metric data
+        is_memory_category = metric_order and is_memory_metric(metric_order[0])
+        
+        if not is_memory_category:
+            # For non-memory metrics, Plotly's built-in autorange handles reset fine
             return current_figure
+        
+        # For memory metrics, we must actively reset Y-axis ranges and tick labels
+        # because custom tickvals/ticktext prevent Plotly from auto-resetting properly
+        df = pd.DataFrame(data_records)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        
+        updated_figure = copy.deepcopy(current_figure)
+        layout = updated_figure.get("layout", {})
+        
+        share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+        
+        if share_yaxis:
+            # Shared: compute global range across all metrics
+            global_y_min = df["value"].min()
+            global_y_max = df["value"].max()
+            y_range_val = global_y_max - global_y_min if global_y_max != global_y_min else abs(global_y_max) if global_y_max != 0 else 1
+            y_padding = 0.1 * y_range_val
+            calc_min = max(0, global_y_min - y_padding)
+            calc_max = global_y_max + y_padding
+            
+            tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+            
+            for subplot_idx in range(len(metric_order)):
+                yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+                if yaxis_key in layout:
+                    layout[yaxis_key]["range"] = [calc_min, calc_max]
+                    layout[yaxis_key]["autorange"] = False
+                    layout[yaxis_key]["tickvals"] = tickvals
+                    layout[yaxis_key]["ticktext"] = ticktext
+        else:
+            # Independent: compute range per metric
+            for subplot_idx, metric_id in enumerate(metric_order):
+                metric_data = df[df["metric_id"] == metric_id]
+                if metric_data.empty:
+                    continue
+                
+                y_min_val = metric_data["value"].min()
+                y_max_val = metric_data["value"].max()
+                y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
+                y_padding = 0.1 * y_range_val
+                calc_min = max(0, y_min_val - y_padding)
+                calc_max = y_max_val + y_padding
+                
+                tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+                
+                yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+                if yaxis_key in layout:
+                    layout[yaxis_key]["range"] = [calc_min, calc_max]
+                    layout[yaxis_key]["autorange"] = False
+                    layout[yaxis_key]["tickvals"] = tickvals
+                    layout[yaxis_key]["ticktext"] = ticktext
+        
+        updated_figure["layout"] = layout
+        return updated_figure
     
     # Find all X-axis range changes in relayoutData
     # With independent X-axes, each subplot has its own xaxis:
@@ -2107,7 +2213,7 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         if x_max.tz is not None:
             x_max = x_max.tz_convert(None) if hasattr(x_max, 'tz_convert') else x_max.replace(tzinfo=None)
     
-    # Check if this is a memory category (check first metric)
+    # Determine the category from the actual metric data
     is_memory_category = metric_order and is_memory_metric(metric_order[0])
     
     if share_yaxis:
@@ -2144,12 +2250,11 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
             if yaxis_key in layout:
                 layout[yaxis_key]["range"] = [calc_min, calc_max]
                 layout[yaxis_key]["autorange"] = False
-                # Apply consistent tick formatting for memory metrics
+                # Apply consistent tick formatting for memory metrics, clear for non-memory
                 if is_memory_category and shared_tickvals is not None:
                     layout[yaxis_key]["tickvals"] = shared_tickvals
                     layout[yaxis_key]["ticktext"] = shared_ticktext
-                elif is_memory_category:
-                    # Clear old tick values if no new ones
+                else:
                     layout[yaxis_key].pop("tickvals", None)
                     layout[yaxis_key].pop("ticktext", None)
     else:
@@ -2188,11 +2293,14 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
                 layout[yaxis_key]["range"] = [calc_min, calc_max]
                 layout[yaxis_key]["autorange"] = False
                 
-                # Update tick formatting for memory metrics
+                # Update tick formatting for memory metrics, clear for non-memory
                 if is_memory_category:
                     tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
                     layout[yaxis_key]["tickvals"] = tickvals
                     layout[yaxis_key]["ticktext"] = ticktext
+                else:
+                    layout[yaxis_key].pop("tickvals", None)
+                    layout[yaxis_key].pop("ticktext", None)
     
     updated_figure["layout"] = layout
     return updated_figure

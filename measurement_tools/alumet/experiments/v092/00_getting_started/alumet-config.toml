@@ -24,6 +24,10 @@ metrics = [
     "Mapped",
 ]
 
+[plugins.procfs.network]
+enabled = false
+poll_interval = "5s"
+
 [plugins.procfs.processes]
 enabled = true
 refresh_interval = "2s"

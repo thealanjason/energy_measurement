@@ -1,5 +1,5 @@
 [plugins.csv]
-output_path = "alumet-output-rapl+perf.csv"
+output_path = "alumet-output-rapl.csv"
 force_flush = true
 append_unit_to_metric_name = true
 use_unit_display_name = true
@@ -24,10 +24,6 @@ metrics = [
     "Mapped",
 ]
 
-[plugins.procfs.network]
-enabled = false
-poll_interval = "20ms"
-
 [plugins.procfs.processes]
 enabled = true
 refresh_interval = "20ms"
@@ -37,43 +33,14 @@ strategy = "event"
 exe_regex = ""
 poll_interval = "20ms"
 flush_interval = "2s"
-memory_mode = "quick"
 
 [plugins.procfs.processes.events]
 poll_interval = "20ms"
 flush_interval = "2s"
-memory_mode = "quick"
 
 
 [plugins.rapl]
 poll_interval = "20ms"
 flush_interval = "2s"
-no_perf_events = false
+no_perf_events = true
 
-[plugins.perf]
-# Description.
-poll_interval = "20ms"
-flush_interval = "2s"
-hardware_events = [
-    "CPU_CYCLES",
-    "INSTRUCTIONS",
-    "CACHE_REFERENCES",
-    "CACHE_MISSES",
-    "BRANCH_INSTRUCTIONS",
-    "BRANCH_MISSES",
-    "BUS_CYCLES",
-    "REF_CPU_CYCLES"
-]
-
-software_events = [
-    "PAGE_FAULTS",
-    "CONTEXT_SWITCHES",
-    "CPU_MIGRATIONS",
-    "PAGE_FAULTS_MIN",
-    "PAGE_FAULTS_MAJ",
-    "ALIGNMENT_FAULTS",
-    "EMULATION_FAULTS",
-    "CGROUP_SWITCHES"
-]
-cache_events = [
-]

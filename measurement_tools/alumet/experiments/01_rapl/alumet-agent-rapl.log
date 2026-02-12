@@ -1,9 +1,9 @@
-[2026-02-12T16:49:55Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:54:39.575971306Z, rustc 1.91.0, debug=false)
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] Initializing the plugins...
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] 3 plugins initialized.
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] Starting the plugins...
-[2026-02-12T16:49:55Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] Plugin startup complete.
+[2026-02-12T19:03:17Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:28:19.780015230Z, rustc 1.91.0, debug=false)
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] 3 plugins initialized.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-02-12T19:03:17Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Plugin startup complete.
     🧩 3 plugins started:
         - csv v0.2.0
         - procfs v0.2.1
@@ -57,21 +57,19 @@
     
     🔔 0 metric listener registered.
     
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] Starting the measurement pipeline...
-[2026-02-12T16:49:55Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
-[2026-02-12T16:49:55Z INFO  plugin_procfs] Setting up on-demand process watcher.
-[2026-02-12T16:49:55Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
-[2026-02-12T16:49:55Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 9440.
-python3: can't open file '/mnt/userdrive/Users/home/adam-5c5exbwih7m91kp/Work/Projects/energy_measurement/measurement_tools/alumet/experiments/01_rapl/../../../case_studies/test_program.py': [Errno 2] No such file or directory
-[2026-02-12T16:49:55Z INFO  alumet::agent::exec] Child process exited with exit status: 2, Alumet will now stop.
-[2026-02-12T16:49:55Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
-[2026-02-12T16:49:55Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-9440 stopped itself.
-[2026-02-12T16:49:57Z INFO  alumet::agent::builder] Stopping the plugins...
-[2026-02-12T16:49:57Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
-[2026-02-12T16:49:57Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
-[2026-02-12T16:49:57Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
-[2026-02-12T16:49:57Z INFO  alumet::agent::builder] All plugins have stopped.
-[2026-02-12T16:49:57Z WARN  alumet_agent] Propagating failure exit code from the child process. Use `exec --ignore-exit-code` to disable the propagation.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-02-12T19:03:17Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-02-12T19:03:17Z INFO  plugin_procfs] Setting up on-demand process watcher.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-02-12T19:03:17Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 32199.
+[2026-02-12T19:03:26Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
+[2026-02-12T19:03:26Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-02-12T19:03:26Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-32199 stopped itself.
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] All plugins have stopped.

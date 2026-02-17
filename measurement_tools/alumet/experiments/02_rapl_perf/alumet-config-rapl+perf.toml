@@ -24,6 +24,10 @@ metrics = [
     "Mapped",
 ]
 
+[plugins.procfs.network]
+enabled = false
+poll_interval = "20ms"
+
 [plugins.procfs.processes]
 enabled = true
 refresh_interval = "20ms"
@@ -33,10 +37,12 @@ strategy = "event"
 exe_regex = ""
 poll_interval = "20ms"
 flush_interval = "2s"
+memory_mode = "quick"
 
 [plugins.procfs.processes.events]
 poll_interval = "20ms"
 flush_interval = "2s"
+memory_mode = "quick"
 
 
 [plugins.rapl]

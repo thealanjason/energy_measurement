@@ -24,6 +24,10 @@ metrics = [
     "Mapped",
 ]
 
+[plugins.procfs.network]
+enabled = true
+poll_interval = "5s"
+
 [plugins.procfs.processes]
 enabled = true
 refresh_interval = "2s"
@@ -33,7 +37,9 @@ strategy = "watcher"
 exe_regex = ""
 poll_interval = "2s"
 flush_interval = "4s"
+memory_mode = "quick"
 
 [plugins.procfs.processes.events]
 poll_interval = "1s"
 flush_interval = "4s"
+memory_mode = "quick"

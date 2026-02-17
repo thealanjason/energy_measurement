@@ -1,39 +1,56 @@
-[2025-11-02T21:12:52Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-e38f35d-dirty (2025-10-30T09:26:27.579386171Z, rustc 1.90.0, debug=false)
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] Initializing the plugins...
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] 2 plugins initialized.
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] Starting the plugins...
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] Plugin startup complete.
+[2026-02-12T20:09:15Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:54:39.575971306Z, rustc 1.91.0, debug=false)
+[2026-02-12T20:09:15Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-02-12T20:09:15Z INFO  alumet::agent::builder] 25 plugins initialized.
+[2026-02-12T20:09:15Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-02-12T20:09:15Z INFO  plugin_prometheus_exporter] Prometheus metrics exporter available on http://0.0.0.0:9091/metrics
+[2026-02-12T20:09:15Z INFO  plugin_influxdb] Testing connection to InfluxDB...
+Error: startup failure
+
+Caused by:
+    0: plugin failed to start: influxdb v0.1.0
+    1: Cannot write to InfluxDB host http://localhost:8086 in org FILL ME and bucket FILL ME. Please check your configuration.
+    2: error sending request for url (http://localhost:8086/api/v2/write?org=FILL+ME&bucket=FILL+ME&precision=ns)
+    3: client error (Connect)
+    4: tcp connect error
+    5: Connection refused (os error 111)
+adam-5c5exbwih7m91kp@68G-gaia:~/Work/Projects/energy_measurement/measurement_tools/alumet/experiments/00_getting_started$ /Users/share/alumet/alumet-agent --plugins=procfs,csv exec python3 -- -c "print(1+1)"
+[2026-02-12T20:09:42Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:54:39.575971306Z, rustc 1.91.0, debug=false)
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] 2 plugins initialized.
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-02-12T20:09:42Z WARN  plugin_procfs::network] Cannot rewind on "/proc/net/dev", your kernel probably has a bug (see issue #336). A workaround will be used, but the network source will be slower.
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] Plugin startup complete.
     🧩 2 plugins started:
         - csv v0.2.0
-        - procfs v0.1.0
+        - procfs v0.2.1
     
     ⭕ 24 plugins disabled:
-        - aggregation v0.1.0
-        - cgroups v0.1.0
-        - elasticsearch v0.1.0
-        - energy-attribution v0.1.0
-        - energy-estimation-tdp v0.1.0
-        - grace-hopper v0.1.0
-        - influxdb v0.1.0
-        - jetson v1.0.0
-        - k8s v0.1.0
-        - kwollect-input v1.0.0
-        - kwollect-output v0.1.0
-        - mongodb v0.1.0
-        - nvml v0.4.0
-        - oar v0.1.0
-        - opentelemetry v0.1.0
-        - perf v0.1.0
-        - process-to-cgroup-bridge v0.1.0
-        - prometheus-exporter v0.1.0
         - quarch v0.1.0
-        - rapl v0.3.1
+        - prometheus-exporter v0.1.0
+        - influxdb v0.1.0
+        - mongodb v0.1.0
         - relay-client v0.6.0
         - relay-server v0.6.0
-        - slurm v0.1.0
+        - opentelemetry v0.1.0
+        - aggregation v0.1.0
+        - energy-attribution v0.1.1
+        - energy-estimation-tdp v0.1.0
+        - elasticsearch v0.1.0
+        - kwollect-input v1.0.0
+        - kwollect-output v0.1.0
         - socket-control v0.2.1
+        - k8s v0.1.1
+        - slurm v0.1.1
+        - oar v0.1.1
+        - cgroups v0.1.1
+        - grace-hopper v0.1.0
+        - rapl v0.3.1
+        - perf v0.1.0
+        - jetson v1.0.0
+        - nvml v0.5.0
+        - process-to-cgroup-bridge v0.1.0
     
-    📏 16 metrics registered:
+    📏 20 metrics registered:
         - kernel_cpu_time: U64 (ms)
         - kernel_context_switches: U64 ()
         - kernel_new_forks: U64 ()
@@ -47,26 +64,34 @@
         - active: U64 (kB)
         - inactive: U64 (kB)
         - mapped: U64 (kB)
+        - network_bytes: U64 (B)
+        - network_packets: U64 ()
+        - network_packet_drops: U64 ()
+        - network_errors: U64 ()
         - cpu_time_delta: U64 (ns)
-        - cpu_percent: F64 ()
+        - cpu_percent: F64 (%)
         - memory_usage: U64 (B)
     
-    📥 2 sources, 🔀 0 transform and 📝 1 output registered.
+    📥 3 sources, 🔀 0 transform and 📝 1 output registered.
     
     🔔 0 metric listener registered.
     
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] Starting the measurement pipeline...
-[2025-11-02T21:12:52Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
-[2025-11-02T21:12:52Z INFO  plugin_procfs] Starting system-wide process watcher.
-[2025-11-02T21:12:52Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
-[2025-11-02T21:12:52Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 408493.
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-02-12T20:09:42Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-02-12T20:09:42Z INFO  plugin_procfs] Starting system-wide process watcher.
+[2026-02-12T20:09:42Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-02-12T20:09:42Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 35883.
 2
-[2025-11-02T21:12:52Z INFO  alumet::agent::exec] Child process exited with status exit status: 0, Alumet will now stop.
-[2025-11-02T21:12:52Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
-[2025-11-02T21:12:57Z INFO  alumet::agent::builder] Stopping the plugins...
-[2025-11-02T21:12:57Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
-[2025-11-02T21:12:57Z INFO  alumet::agent::builder] Stopping plugin procfs v0.1.0
-[2025-11-02T21:12:57Z INFO  alumet::agent::builder] All plugins have stopped.
+[2026-02-12T20:09:42Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
+[2026-02-12T20:09:42Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-02-12T20:09:47Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-02-12T20:09:47Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-02-12T20:09:47Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
+[2026-02-12T20:09:47Z INFO  alumet::agent::builder] All plugins have stopped.
+
+thread 'main' (35783) panicked at agent/src/bin/main.rs:190:29:
+error in shutdown
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -2,6 +2,7 @@ import warnings
 import re
 import numpy as np
 import pandas as pd
+import polars as pl
 import plotly.graph_objects as go
 import plotly.colors as pc
 from plotly.subplots import make_subplots
@@ -11,34 +12,56 @@ from pathlib import Path
 # ================================================
 # CSV dataframe helper functions
 # ================================================
+def _read_csv_with_polars(csv_path: Path) -> pl.DataFrame:
+    """Read CSV with Polars multi-threaded reader, with Parquet sidecar caching.
+    
+    On first load: reads CSV with Polars (multi-threaded) and saves a .parquet sidecar.
+    On subsequent loads: reads the Parquet sidecar directly (instant).
+    """
+    parquet_path = csv_path.with_suffix(".parquet")
+    if parquet_path.exists() and parquet_path.stat().st_mtime >= csv_path.stat().st_mtime:
+        # Parquet sidecar is fresh — skip CSV parsing entirely
+        return pl.read_parquet(parquet_path)
+    
+    # Use Polars multi-threaded CSV reader (significantly faster than pandas)
+    # Explicitly set 'value' to Float64 — Polars may mis-infer it as i64
+    # if the first rows happen to contain integer-like values
+    df_pl = pl.read_csv(
+        csv_path,
+        separator=";",
+        try_parse_dates=True,
+        schema_overrides={"value": pl.Float64},
+    )
+    # Save Parquet sidecar for instant future loads
+    df_pl.write_parquet(parquet_path)
+    return df_pl
+
+
 def load_csv_from_path(csv_path: Path) -> pd.DataFrame:
     """Load CSV data from file path.
     
     Optimized for large files:
+    - Uses Polars multi-threaded CSV reader
+    - Caches a Parquet file next to the CSV for subsequent re-loads
     - Uses category dtype for string columns with limited unique values
-    - Parses dates efficiently
-    - Uses low_memory=False for consistent dtype inference
     """
     if not csv_path.exists():
         raise ValueError(f"CSV file not found: {csv_path}")
     
     try:
-        # Read CSV with optimized settings for large files
-        df = pd.read_csv(
-            csv_path, 
-            sep=";",
-            low_memory=False,  # More consistent dtype inference
-            # Parse timestamp during read (faster than separate conversion)
-            parse_dates=["timestamp"],
-        )
+        df_pl = _read_csv_with_polars(csv_path)
+        df = df_pl.to_pandas()
     except Exception as e:
         raise ValueError(f"Error parsing CSV: {str(e)}")
     
     if df.empty:
         raise ValueError("No data found in CSV.")
     
+    # Ensure timestamp is datetime
+    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    
     # Convert string columns to category dtype for memory efficiency
-    # Category dtype is much more efficient for columns with repeated values
     category_cols = ["metric", "resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]
     for col in category_cols:
         if col in df.columns:
@@ -51,34 +74,40 @@ def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
     """Preprocess dataframe to have metric, timestamp, and value columns.
     Metric column format: f"{metric}_R_{resource_kind}_{resource_id}_C_{consumer_kind}_{consumer_id}_A_{late_attributes}"
     
-    Optimized using vectorized string operations (300x+ faster than apply).
+    Uses Polars for string concatenation,
+    then converts back to pandas for downstream compatibility.
     Also pre-computes base_metric to avoid repeated .str.split() in callbacks.
     
     Returns:
         Preprocessed DataFrame with metric_id, base_metric, timestamp, value columns
     """
-    # Use vectorized string concatenation instead of apply (MUCH faster)
-    # Convert to string first (handles categorical columns), then replace NaN representations
-    metric = df["metric"].astype(str)
-    r_kind = df["resource_kind"].astype(str).replace("nan", "") if "resource_kind" in df.columns else ""
-    r_id = df["resource_id"].astype(str).replace("nan", "") if "resource_id" in df.columns else ""
-    c_kind = df["consumer_kind"].astype(str).replace("nan", "") if "consumer_kind" in df.columns else ""
-    c_id = df["consumer_id"].astype(str).replace("nan", "") if "consumer_id" in df.columns else ""
-    late_attr = df["__late_attributes"].astype(str).replace("nan", "") if "__late_attributes" in df.columns else ""
+    # Convert to Polars for fast string operations
+    df_pl = pl.from_pandas(df)
     
-    # Vectorized string concatenation - orders of magnitude faster than apply
-    metric_id = (metric + "_R_" + r_kind + "_" + r_id + "_C_" + c_kind + "_" + c_id + "_A_" + late_attr)
+    # Build fill_null expressions for each column (replaces NaN/"null" with "")
+    col_exprs = {}
+    for col_name in ["metric", "resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]:
+        if col_name in df_pl.columns:
+            col_exprs[col_name] = pl.col(col_name).cast(pl.Utf8).fill_null("")
+        else:
+            col_exprs[col_name] = pl.lit("")
     
-    # Build result dataframe directly without unnecessary copy
-    # Include base_metric (same as metric column) to avoid repeated .str.split("_R_") in callbacks
-    result = pd.DataFrame({
-        "metric_id": metric_id,
-        "base_metric": metric,  # Pre-computed for faster filtering in callbacks
-        "timestamp": df["timestamp"],
-        "value": df["value"]
-    })
+    # Polars string concat is multi-threaded and much faster than pandas
+    result_pl = df_pl.select([
+        (
+            col_exprs["metric"] + "_R_" +
+            col_exprs["resource_kind"] + "_" +
+            col_exprs["resource_id"] + "_C_" +
+            col_exprs["consumer_kind"] + "_" +
+            col_exprs["consumer_id"] + "_A_" +
+            col_exprs["__late_attributes"]
+        ).alias("metric_id"),
+        col_exprs["metric"].alias("base_metric"),
+        pl.col("timestamp"),
+        pl.col("value"),
+    ])
     
-    return result
+    return result_pl.to_pandas()
 
 # ================================================
 # Directory and file path helper functions

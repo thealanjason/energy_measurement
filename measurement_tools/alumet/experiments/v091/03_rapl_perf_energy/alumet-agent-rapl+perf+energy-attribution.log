@@ -1,0 +1,95 @@
+[2026-02-12T17:16:57Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-121f050-dirty (2025-11-04T15:09:14.054112820Z, rustc 1.91.0, debug=false)
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] 5 plugins initialized.
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-02-12T17:16:57Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] Plugin startup complete.
+    🧩 5 plugins started:
+        - csv v0.2.0
+        - energy-attribution v0.1.0
+        - perf v0.1.0
+        - procfs v0.1.0
+        - rapl v0.3.1
+    
+    ⭕ 21 plugins disabled:
+        - aggregation v0.1.0
+        - cgroups v0.1.0
+        - elasticsearch v0.1.0
+        - energy-estimation-tdp v0.1.0
+        - grace-hopper v0.1.0
+        - influxdb v0.1.0
+        - jetson v1.0.0
+        - k8s v0.1.0
+        - kwollect-input v1.0.0
+        - kwollect-output v0.1.0
+        - mongodb v0.1.0
+        - nvml v0.4.0
+        - oar v0.1.0
+        - opentelemetry v0.1.0
+        - process-to-cgroup-bridge v0.1.0
+        - prometheus-exporter v0.1.0
+        - quarch v0.1.0
+        - relay-client v0.6.0
+        - relay-server v0.6.0
+        - slurm v0.1.0
+        - socket-control v0.2.1
+    
+    📏 34 metrics registered:
+        - attributed_energy: F64 (J)
+        - perf_hardware_CPU_CYCLES: U64 ()
+        - perf_hardware_INSTRUCTIONS: U64 ()
+        - perf_hardware_CACHE_REFERENCES: U64 ()
+        - perf_hardware_CACHE_MISSES: U64 ()
+        - perf_hardware_BRANCH_INSTRUCTIONS: U64 ()
+        - perf_hardware_BRANCH_MISSES: U64 ()
+        - perf_hardware_BUS_CYCLES: U64 ()
+        - perf_hardware_REF_CPU_CYCLES: U64 ()
+        - perf_software_PAGE_FAULTS: U64 ()
+        - perf_software_CONTEXT_SWITCHES: U64 ()
+        - perf_software_CPU_MIGRATIONS: U64 ()
+        - perf_software_PAGE_FAULTS_MIN: U64 ()
+        - perf_software_PAGE_FAULTS_MAJ: U64 ()
+        - perf_software_ALIGNMENT_FAULTS: U64 ()
+        - perf_software_EMULATION_FAULTS: U64 ()
+        - perf_software_CGROUP_SWITCHES: U64 ()
+        - kernel_cpu_time: U64 (ms)
+        - kernel_context_switches: U64 ()
+        - kernel_new_forks: U64 ()
+        - kernel_n_procs_running: U64 ()
+        - kernel_n_procs_blocked: U64 ()
+        - mem_total: U64 (kB)
+        - mem_free: U64 (kB)
+        - mem_available: U64 (kB)
+        - cached: U64 (kB)
+        - swap_cached: U64 (kB)
+        - active: U64 (kB)
+        - inactive: U64 (kB)
+        - mapped: U64 (kB)
+        - cpu_time_delta: U64 (ns)
+        - cpu_percent: F64 (%)
+        - memory_usage: U64 (B)
+        - rapl_consumed_energy: F64 (J)
+    
+    📥 3 sources, 🔀 1 transform and 📝 1 output registered.
+    
+    🔔 0 metric listener registered.
+    
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-02-12T17:16:57Z INFO  plugin_procfs] Setting up on-demand process watcher.
+[2026-02-12T17:16:57Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-02-12T17:16:57Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 18149.
+[2026-02-12T17:16:57Z INFO  plugin_perf] Starting to observe Process { pid: 18149 }...
+python3: can't open file '/mnt/userdrive/Users/home/adam-5c5exbwih7m91kp/Work/Projects/energy_measurement/measurement_tools/alumet/experiments/v091/03_rapl_perf_energy/../../../case_studies/test_program.py': [Errno 2] No such file or directory
+[2026-02-12T17:16:57Z INFO  alumet::agent::exec] Child process exited with status exit status: 2, Alumet will now stop.
+[2026-02-12T17:16:57Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-02-12T17:16:57Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-18149 stopped itself.
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] Stopping plugin energy-attribution v0.1.0
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] Stopping plugin perf v0.1.0
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] Stopping plugin procfs v0.1.0
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
+[2026-02-12T17:16:59Z INFO  alumet::agent::builder] All plugins have stopped.

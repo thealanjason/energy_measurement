@@ -1,38 +1,38 @@
-[2025-11-04T13:44:45Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.1-e38f35d-dirty (2025-10-30T09:26:27.579386171Z, rustc 1.90.0, debug=false)
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Initializing the plugins...
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] 3 plugins initialized.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Starting the plugins...
-[2025-11-04T13:44:45Z INFO  plugin_rapl] Available RAPL domains: package, platform, pp0, pp1
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Plugin startup complete.
+[2026-02-12T19:03:17Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:28:19.780015230Z, rustc 1.91.0, debug=false)
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] 3 plugins initialized.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-02-12T19:03:17Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Plugin startup complete.
     🧩 3 plugins started:
         - csv v0.2.0
-        - procfs v0.1.0
+        - procfs v0.2.1
         - rapl v0.3.1
     
     ⭕ 23 plugins disabled:
-        - aggregation v0.1.0
-        - cgroups v0.1.0
-        - elasticsearch v0.1.0
-        - energy-attribution v0.1.0
-        - energy-estimation-tdp v0.1.0
-        - grace-hopper v0.1.0
-        - influxdb v0.1.0
-        - jetson v1.0.0
-        - k8s v0.1.0
-        - kwollect-input v1.0.0
-        - kwollect-output v0.1.0
-        - mongodb v0.1.0
-        - nvml v0.4.0
-        - oar v0.1.0
-        - opentelemetry v0.1.0
-        - perf v0.1.0
-        - process-to-cgroup-bridge v0.1.0
-        - prometheus-exporter v0.1.0
         - quarch v0.1.0
+        - prometheus-exporter v0.1.0
+        - influxdb v0.1.0
+        - mongodb v0.1.0
         - relay-client v0.6.0
         - relay-server v0.6.0
-        - slurm v0.1.0
+        - opentelemetry v0.1.0
+        - aggregation v0.1.0
+        - energy-attribution v0.1.1
+        - energy-estimation-tdp v0.1.0
+        - elasticsearch v0.1.0
+        - kwollect-input v1.0.0
+        - kwollect-output v0.1.0
         - socket-control v0.2.1
+        - k8s v0.1.1
+        - slurm v0.1.1
+        - oar v0.1.1
+        - cgroups v0.1.1
+        - grace-hopper v0.1.0
+        - process-to-cgroup-bridge v0.1.0
+        - perf v0.1.0
+        - jetson v1.0.0
+        - nvml v0.5.0
     
     📏 17 metrics registered:
         - kernel_cpu_time: U64 (ms)
@@ -49,7 +49,7 @@
         - inactive: U64 (kB)
         - mapped: U64 (kB)
         - cpu_time_delta: U64 (ns)
-        - cpu_percent: F64 ()
+        - cpu_percent: F64 (%)
         - memory_usage: U64 (B)
         - rapl_consumed_energy: F64 (J)
     
@@ -57,19 +57,19 @@
     
     🔔 0 metric listener registered.
     
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Starting the measurement pipeline...
-[2025-11-04T13:44:45Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
-[2025-11-04T13:44:45Z INFO  plugin_procfs] Setting up on-demand process watcher.
-[2025-11-04T13:44:45Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
-[2025-11-04T13:44:45Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 635767.
-[2025-11-04T13:44:48Z INFO  alumet::agent::exec] Child process exited with status exit status: 0, Alumet will now stop.
-[2025-11-04T13:44:48Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
-[2025-11-04T13:44:48Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-635767 stopped itself.
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping the plugins...
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping plugin procfs v0.1.0
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
-[2025-11-04T13:44:49Z INFO  alumet::agent::builder] All plugins have stopped.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-02-12T19:03:17Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-02-12T19:03:17Z INFO  plugin_procfs] Setting up on-demand process watcher.
+[2026-02-12T19:03:17Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-02-12T19:03:17Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 32199.
+[2026-02-12T19:03:26Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
+[2026-02-12T19:03:26Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-02-12T19:03:26Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-32199 stopped itself.
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
+[2026-02-12T19:03:27Z INFO  alumet::agent::builder] All plugins have stopped.

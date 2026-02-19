@@ -1,0 +1,81 @@
+[2026-02-12T18:46:21Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.2-75ca7b5-dirty (2026-01-30T13:54:56.907150830Z, rustc 1.91.0, debug=false)
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] 2 plugins initialized.
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-02-12T18:46:21Z WARN  plugin_procfs::network] Cannot rewind on "/proc/net/dev", your kernel probably has a bug (see issue #336). A workaround will be used, but the network source will be slower.
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] Plugin startup complete.
+    🧩 2 plugins started:
+        - csv v0.2.0
+        - procfs v0.2.1
+    
+    ⭕ 24 plugins disabled:
+        - quarch v0.1.0
+        - prometheus-exporter v0.1.0
+        - influxdb v0.1.0
+        - mongodb v0.1.0
+        - relay-client v0.6.0
+        - relay-server v0.6.0
+        - opentelemetry v0.1.0
+        - aggregation v0.1.0
+        - energy-attribution v0.1.1
+        - energy-estimation-tdp v0.1.0
+        - elasticsearch v0.1.0
+        - kwollect-input v1.0.0
+        - kwollect-output v0.1.0
+        - socket-control v0.2.1
+        - k8s v0.1.0
+        - slurm v0.1.0
+        - oar v0.1.0
+        - cgroups v0.1.0
+        - grace-hopper v0.1.0
+        - rapl v0.3.1
+        - perf v0.1.0
+        - jetson v1.0.0
+        - nvml v0.5.0
+        - process-to-cgroup-bridge v0.1.0
+    
+    📏 20 metrics registered:
+        - kernel_cpu_time: U64 (ms)
+        - kernel_context_switches: U64 ()
+        - kernel_new_forks: U64 ()
+        - kernel_n_procs_running: U64 ()
+        - kernel_n_procs_blocked: U64 ()
+        - mem_total: U64 (kB)
+        - mem_free: U64 (kB)
+        - mem_available: U64 (kB)
+        - cached: U64 (kB)
+        - swap_cached: U64 (kB)
+        - active: U64 (kB)
+        - inactive: U64 (kB)
+        - mapped: U64 (kB)
+        - network_bytes: U64 (B)
+        - network_packets: U64 ()
+        - network_packet_drops: U64 ()
+        - network_errors: U64 ()
+        - cpu_time_delta: U64 (ns)
+        - cpu_percent: F64 (%)
+        - memory_usage: U64 (B)
+    
+    📥 3 sources, 🔀 0 transform and 📝 1 output registered.
+    
+    🔔 0 metric listener registered.
+    
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-02-12T18:46:21Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-02-12T18:46:21Z INFO  plugin_procfs] Starting system-wide process watcher.
+[2026-02-12T18:46:21Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-02-12T18:46:21Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 29773.
+2
+[2026-02-12T18:46:21Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
+[2026-02-12T18:46:21Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-02-12T18:46:26Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-02-12T18:46:26Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-02-12T18:46:26Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
+[2026-02-12T18:46:26Z INFO  alumet::agent::builder] All plugins have stopped.
+
+thread 'main' (29672) panicked at agent/src/bin/main.rs:190:29:
+error in shutdown
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -2,7 +2,7 @@
 
 Alumet (https://alumet.dev/) is a tool that allows measurement of data from various sources, transform them if necessary, and output them to various endpoints. 
 
-## Installation
+## Installing Alumet
 
 Here I proceed with installing Alumet from source. For this I needed to perform the following:
 
@@ -91,7 +91,7 @@ alumet-agent --config=alumet-config-rapl+perf.toml exec python3 ../../../case_st
 Output: `alumet-output-rapl+perf.csv`
 Logfile: `alumet-agent-rapl+perf.log`
 
-## Process-specific Energy Measurement with Alumet
+## Process specific Energy Measurement with Alumet
 
 ### Concept
 

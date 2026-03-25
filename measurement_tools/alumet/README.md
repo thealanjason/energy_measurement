@@ -75,7 +75,7 @@ Folder: `experiments/01_rapl`
 
 Command: 
 ```bash
-alumet-agent --config=alumet-config-rapl.toml exec python3 ../../../case_studies/test_program.py 2> alumet-agent-rapl.log
+alumet-agent --config=alumet-config-rapl.toml exec python3 ../../../../case_studies/warmup/test_program.py 2> alumet-agent-rapl.log
 ```
 Output: `alumet-output-rapl.csv`
 Logfile: `alumet-agent-rapl.log`
@@ -86,7 +86,7 @@ Folder: `experiments/02_rapl_perf`
 
 Command: 
 ```bash
-alumet-agent --config=alumet-config-rapl+perf.toml exec python3 ../../../case_studies/test_program.py 2> alumet-agent-rapl+perf.log
+alumet-agent --config=alumet-config-rapl+perf.toml exec python3 ../../../../case_studies/warmup/test_program.py 2> alumet-agent-rapl+perf.log
 ```
 Output: `alumet-output-rapl+perf.csv`
 Logfile: `alumet-agent-rapl+perf.log`
@@ -111,7 +111,7 @@ Folder: `experiments/03_rapl_perf_energy`
 
 Command:
 ```bash
-alumet-agent --config=alumet-config-rapl+perf+energy-attribution.toml exec python3 ../../../case_studies/test_program.py 2> alumet-agent-rapl+perf+energy-attribution.log
+alumet-agent --config=alumet-config-rapl+perf+energy-attribution.toml exec python3 ../../../../case_studies/warmup/test_program.py 2> alumet-agent-rapl+perf+energy-attribution.log
 ```
 Output: `alumet-output-rapl+perf+energy-attribution.csv`
 Logfile: `alumet-agent-rapl+perf+energy-attribution.log`

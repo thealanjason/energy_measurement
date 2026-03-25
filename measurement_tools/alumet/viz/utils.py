@@ -24,13 +24,20 @@ def _read_csv_with_polars(csv_path: Path) -> pl.DataFrame:
         return pl.read_parquet(parquet_path)
     
     # Use Polars multi-threaded CSV reader (significantly faster than pandas)
-    # Explicitly set 'value' to Float64 — Polars may mis-infer it as i64
-    # if the first rows happen to contain integer-like values
+    # Explicit dtypes:
+    # - value: Float64 — early rows may look integer-like
+    # - resource_id / consumer_id: Utf8 — NVML uses PCI bus IDs (e.g. 00000000:3F:00.0)
+    #   which are not valid i64; empty early rows make Polars infer i64 otherwise
     df_pl = pl.read_csv(
         csv_path,
         separator=";",
         try_parse_dates=True,
-        schema_overrides={"value": pl.Float64},
+        infer_schema_length=10000,
+        schema_overrides={
+            "value": pl.Float64,
+            "resource_id": pl.Utf8,
+            "consumer_id": pl.Utf8,
+        },
     )
     # Save Parquet sidecar for instant future loads
     df_pl.write_parquet(parquet_path)
@@ -157,12 +164,114 @@ def extract_pid_from_content(log_content: str) -> Optional[int]:
                 return int(match.group(1))
     return None
 
+def metric_id_is_process_consumer(metric_id: str) -> bool:
+    """
+    True if the metric row was attributed to a process (consumer_kind == 'process').
+    
+    Preprocessed metric_id embeds consumers as ..._C_{consumer_kind}_{consumer_id}_A_{late_attributes}....
+    Process rows contain _C_process_<pid>_ (e.g. _C_process_172681_A_).
+    """
+    return "_C_process_" in str(metric_id)
+
+def _extract_gpu_bus_pid(metric_id: str) -> Optional[str]:
+    pid_pattern = re.compile(r"_C_process_(\d+)")
+    m = pid_pattern.search(str(metric_id))
+    return m.group(1) if m else None
+
+def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFrame:
+    """
+    Synthesize attributed_energy_total_J metric from attributed_energy_cpu and attributed_energy_gpu.
+    
+    The energy-attribution plugin produces one row per (GPU, process) pair.
+    This function creates two synthetic metrics in post-processing:
+    
+    1. attributed_energy_gpu_total_J — sum of attributed GPU energy across
+       all GPUs for each process (PID).  Useful when a process spans multiple GPUs.
+    2. attributed_energy_total_J — attributed_energy_gpu_total + attributed_energy_cpu
+       for each process.  Requires merge_asof because CPU and GPU timestamps differ.
+    
+    Args:
+        df_processed: Preprocessed DataFrame with metric_id, base_metric, timestamp, value columns.
+    
+    Returns:
+        DataFrame of synthetic rows (both metrics) in the same column format,
+        or empty DataFrame when source data is missing.
+    """
+    cpu_mask = df_processed["base_metric"].str.contains("attributed_energy_cpu", case=False, na=False)
+    gpu_mask = df_processed["base_metric"].str.contains("attributed_energy_gpu", case=False, na=False)
+
+    df_cpu = df_processed.loc[cpu_mask, ["metric_id", "timestamp", "value"]].copy()
+    df_gpu = df_processed.loc[gpu_mask, ["metric_id", "timestamp", "value"]].copy()
+
+    if df_gpu.empty:
+        return pd.DataFrame(columns=df_processed.columns)
+
+    df_gpu["pid"] = df_gpu["metric_id"].map(_extract_gpu_bus_pid)
+    df_gpu.dropna(subset=["pid"], inplace=True)
+    df_gpu["timestamp"] = pd.to_datetime(df_gpu["timestamp"], errors="coerce")
+
+    if df_gpu.empty:
+        return pd.DataFrame(columns=df_processed.columns)
+
+    # Sum GPU attributed energy across all GPUs per (timestamp, pid).
+    df_gpu_summed = df_gpu.groupby(["timestamp", "pid"], as_index=False)["value"].sum()
+
+    synthetic_parts: list[pd.DataFrame] = []
+
+    # attributed_energy_gpu_total_J (always produced when GPU data exists)
+    for pid in df_gpu_summed["pid"].unique():
+        gpu_pid = df_gpu_summed.loc[df_gpu_summed["pid"] == pid, ["timestamp", "value"]].copy()
+        gpu_pid["metric_id"] = f"attributed_energy_gpu_total_J_R_gpu_all__C_process_{pid}_A_"
+        gpu_pid["base_metric"] = "attributed_energy_gpu_total_J"
+        synthetic_parts.append(gpu_pid[["metric_id", "base_metric", "timestamp", "value"]])
+
+    # attributed_energy_total_J (only when both CPU and GPU data exist)
+    if not df_cpu.empty:
+        df_cpu["pid"] = df_cpu["metric_id"].map(_extract_gpu_bus_pid)
+        df_cpu.dropna(subset=["pid"], inplace=True)
+        df_cpu["timestamp"] = pd.to_datetime(df_cpu["timestamp"], errors="coerce")
+
+        for pid in df_cpu["pid"].unique():
+            cpu_pid = (
+                df_cpu.loc[df_cpu["pid"] == pid, ["timestamp", "value"]]
+                .rename(columns={"value": "cpu_value"})
+                .sort_values("timestamp")
+            )
+            gpu_pid = (
+                df_gpu_summed.loc[df_gpu_summed["pid"] == pid, ["timestamp", "value"]]
+                .rename(columns={"value": "gpu_value"})
+                .sort_values("timestamp")
+            )
+            if cpu_pid.empty or gpu_pid.empty:
+                continue
+
+            merged = pd.merge_asof(
+                gpu_pid, cpu_pid,
+                on="timestamp",
+                tolerance=pd.Timedelta("50ms"),
+                direction="nearest",
+            )
+            merged.dropna(subset=["cpu_value", "gpu_value"], inplace=True)
+            if merged.empty:
+                continue
+
+            merged["value"] = merged["cpu_value"] + merged["gpu_value"]
+            merged["metric_id"] = f"attributed_energy_total_J_R_total__C_process_{pid}_A_"
+            merged["base_metric"] = "attributed_energy_total_J"
+            synthetic_parts.append(merged[["metric_id", "base_metric", "timestamp", "value"]])
+
+    if not synthetic_parts:
+        return pd.DataFrame(columns=df_processed.columns)
+
+    return pd.concat(synthetic_parts, ignore_index=True)
+
+
 def is_gpu_from_content(log_content: str) -> bool:
-    """Detect whether or not running on gpu device from log content."""
+    """Detect whether the run used GPU-related Alumet plugins (NVML) from agent log text."""
     if not log_content:
         return False
-    for line in log_content.split('\n'):
-        if re.match('nvml', line):
+    for line in log_content.split("\n"):
+        if re.search(r"nvml", line, re.IGNORECASE):
             return True
     return False
 
@@ -245,6 +354,18 @@ def is_cumulative_metric(metric_id: str) -> bool:
         "cached_kb",        # Current cached memory  
         "mapped_kb",        # Current mapped memory
         "swap_cached",      # Current swap cached
+        # GPU (NVML) instantaneous metrics
+        "nvml_instant_power",       # instantaneous power reading (mW)
+        "nvml_temperature",         # instantaneous temperature (°C)
+        "nvml_gpu_utilization",     # instantaneous utilization (%)
+        "nvml_memory_utilization",  # instantaneous memory utilization (%)
+        "nvml_encoder_utilization", # instantaneous encoder utilization (%)
+        "nvml_decoder_utilization", # instantaneous decoder utilization (%)
+        "nvml_sm_utilization",      # instantaneous SM utilization (%)
+        "nvml_n_compute",           # current count of compute processes
+        "nvml_n_graphic",           # current count of graphic processes
+        "nvml_encoder_sampling",    # sampling period (μs)
+        "nvml_decoder_sampling",    # sampling period (μs)
     ]
     
     for pattern in non_cumulative_patterns:
@@ -254,7 +375,7 @@ def is_cumulative_metric(metric_id: str) -> bool:
     # Cumulative metrics
     cumulative_patterns = [
         # Energy metrics (Joules)
-        "energy",           # attributed_energy_J, rapl_consumed_energy_J
+        "energy",           # attributed_energy_J, rapl_consumed_energy_J, nvml_energy_consumption_mJ
         "_j",               # Joules unit suffix
         
         # Time metrics
@@ -307,9 +428,25 @@ def get_metric_unit(metric_name: str) -> str:
     This is a known issue with the naming convention.
     
     Returns:
-        Unit string (e.g., "J", "B", "ns", "ms", "%")
+        Unit string (e.g., "J", "B", "ns", "ms", "%", "mW", "mJ", "°C", "μs")
     """
     metric_lower = str(metric_name).lower()
+    
+    # GPU power metrics (milliWatts) — check before generic energy match
+    if "_mw" in metric_lower or "instant_power" in metric_lower:
+        return "mW"
+    
+    # GPU energy metrics (milliJoules) — check before generic "_j" match
+    if "_mj" in metric_lower:
+        return "mJ"
+    
+    # GPU temperature metrics
+    if "°c" in metric_lower or "temperature" in metric_lower:
+        return "°C"
+    
+    # GPU sampling period metrics (microseconds)
+    if "μs" in metric_lower or "_μs" in metric_name or "sampling_period" in metric_lower:
+        return "μs"
     
     # Energy metrics (Joules)
     if "_j" in metric_lower or "energy" in metric_lower:
@@ -334,8 +471,14 @@ def get_metric_unit(metric_name: str) -> str:
 
 
 def is_memory_metric(metric_name: str) -> bool:
-    """Check if a metric is a memory-related metric (values in Bytes)."""
+    """Check if a metric is a memory-related metric (values in Bytes).
+    
+    Excludes nvml_memory_utilization_% which is a percentage, not a byte count.
+    """
     metric_lower = str(metric_name).lower()
+    # Exclude NVML memory utilization (it's a percentage, not bytes)
+    if "nvml_memory" in metric_lower:
+        return False
     memory_patterns = [
         "mem_", "memory", "_kb", "active_kb", "inactive_kb", 
         "cached_kb", "mapped_kb", "swap_cached"
@@ -388,7 +531,6 @@ def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) 
     y_min = max(0, float(y_min))
     y_max = float(y_max)
     
-    # Handle edge cases
     if y_max <= y_min:
         y_max = y_min + 1
     
@@ -622,7 +764,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         proc_start: Process start time for gray highlight
         proc_end: Process end time for gray highlight
         full_time_range: Tuple of (min_time, max_time) for full measurement range to fix x-axis
-        category: Metric category ("energy", "memory", "kernel_cpu_time", "miscellaneous") to set appropriate Y-axis label
+        category: Metric category ("energy", "utilization", "temperature", "memory", "perf_counters", "kernel_cpu_time", "kernel_system", "miscellaneous") to set appropriate Y-axis label
         share_yaxis: If True, all subplots share the same Y-axis range for easier comparison
     """
     if df_processed.empty:
@@ -761,7 +903,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         metric_data = grouped.get(metric_id, pd.DataFrame())
         if metric_data.empty:
             continue
-        
+
         n_pts = len(metric_data)
         use_webgl = n_pts > 10000  # Use WebGL for large series based on total number of points in each metric
         show_markers = show_markers_global and n_pts < 5000

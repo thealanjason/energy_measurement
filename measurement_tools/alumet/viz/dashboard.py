@@ -29,6 +29,8 @@ from utils import (
     get_metric_unit,
     is_memory_metric,
     get_bytes_tickvals_ticktext,
+    metric_id_is_process_consumer,
+    synthesize_attributed_energy_total,
 )
 
 # Get base directory
@@ -642,10 +644,10 @@ def update_process_info(n_clicks, directory_path):
     log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
     log_content = read_file_content(log_file)
     pid = extract_pid_from_content(log_content)
-    device = "gpu" if is_gpu_from_content(log_content) else "cpu"
+    device = "GPU" if is_gpu_from_content(log_content) else "CPU"
     return (
-        f"process id: {pid or 'N/A'}",
-        f"device: {device}",
+        f"Process ID: {pid or 'N/A'}",
+        f"Device: {device}",
     )
 
 @app.callback(
@@ -836,34 +838,78 @@ def build_time_series_tab(processed_df_data, process_time_range):
     # Get unique base metrics to determine available categories
     base_metrics = df_processed["base_metric"].unique()
     
-    # Determine available categories
+    # Determine available categories — grouped by *what you're analyzing*,
+    # not by where the metric comes from (CPU vs GPU).
     available_categories = []
     
     # Define which metrics belong to which category
-    energy_metrics = set()
-    memory_metrics = set()
-    kernel_cpu_time_metrics = set()
+    energy_metrics = set()       # Energy (J): RAPL + NVML energy + attributed
+    power_metrics = set()        # Power (W): NVML instant power
+    utilization_metrics = set()  # Utilization: cpu_percent + nvml utilization metrics together
+    temperature_metrics = set()  # Temperature: nvml_temperature (+ CPU temp if available)
+    memory_metrics = set()       # Memory: system memory in bytes (NOT nvml_memory_utilization)
+    perf_counter_metrics = set() # Perf Counters: perf_hardware_* + perf_software_*
+    kernel_cpu_time_metrics = set()  # Kernel CPU Time: kernel_cpu_time_ms
+    kernel_system_metrics = set()    # Kernel/System: kernel_* (non-cpu-time) + network_*
     all_categorized = set()
     
     for m in base_metrics:
         m_lower = m.lower()
-        if "energy" in m_lower or "rapl" in m_lower or "attributed" in m_lower:
+        # Power (W) — match before generic "energy" / "rapl" buckets
+        if "nvml_instant_power" in m_lower:
+            power_metrics.add(m)
+            all_categorized.add(m)
+        # Energy (J): RAPL + NVML energy counters + attributed energy (not instant power)
+        elif "energy" in m_lower or "rapl" in m_lower or "attributed" in m_lower:
             energy_metrics.add(m)
             all_categorized.add(m)
-        elif "mem" in m_lower or "memory" in m_lower or "kb" in m_lower:
+        # Utilization: cpu_percent + all nvml utilization/SM metrics
+        elif ("cpu_percent" in m_lower
+              or "nvml_gpu_utilization" in m_lower
+              or "nvml_sm_utilization" in m_lower
+              or "nvml_encoder_utilization" in m_lower
+              or "nvml_decoder_utilization" in m_lower
+              or "nvml_memory_utilization" in m_lower):
+            utilization_metrics.add(m)
+            all_categorized.add(m)
+        # Temperature
+        elif "temperature" in m_lower:
+            temperature_metrics.add(m)
+            all_categorized.add(m)
+        # Memory (bytes only — not nvml_memory_utilization which is already in utilization)
+        elif ("mem" in m_lower or "memory" in m_lower or "kb" in m_lower) and "nvml" not in m_lower:
             memory_metrics.add(m)
             all_categorized.add(m)
+        # Perf counters
+        elif m_lower.startswith("perf_hardware") or m_lower.startswith("perf_software"):
+            perf_counter_metrics.add(m)
+            all_categorized.add(m)
+        # Kernel CPU time
         elif "kernel_cpu_time" in m:
             kernel_cpu_time_metrics.add(m)
+            all_categorized.add(m)
+        # Kernel/System: remaining kernel_* and network_*
+        elif m_lower.startswith("kernel_") or m_lower.startswith("network_"):
+            kernel_system_metrics.add(m)
             all_categorized.add(m)
     
     # Add categories if they have metrics
     if energy_metrics:
-        available_categories.append({"label": "Energy", "value": "energy"})
+        available_categories.append({"label": "Energy (J)", "value": "energy"})
+    if power_metrics:
+        available_categories.append({"label": "Power (W)", "value": "power"})
+    if utilization_metrics:
+        available_categories.append({"label": "Utilization", "value": "utilization"})
+    if temperature_metrics:
+        available_categories.append({"label": "Temperature", "value": "temperature"})
     if memory_metrics:
         available_categories.append({"label": "Memory", "value": "memory"})
+    if perf_counter_metrics:
+        available_categories.append({"label": "Perf Counters", "value": "perf_counters"})
     if kernel_cpu_time_metrics:
         available_categories.append({"label": "Kernel CPU Time", "value": "kernel_cpu_time"})
+    if kernel_system_metrics:
+        available_categories.append({"label": "Kernel/System", "value": "kernel_system"})
     
     # Add miscellaneous category for metrics not in other categories
     miscellaneous_metrics = set(base_metrics) - all_categorized
@@ -1221,6 +1267,7 @@ def _comparative_metric_ids(processed_df_data: Any, process_time_range: Any) -> 
         return []
     return sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
 
+
 def _filter_comparative_metric_ids(metric_ids: list, process_only: bool) -> list:
     """Restrict to process-attributed series (consumer_kind encoded as ``_C_process_`` in metric_id)."""
     if not process_only:
@@ -1470,6 +1517,7 @@ def update_comparative_metric_dropdowns(
     x_val, y_val = _pick_xy_metric_values(filtered, cur_x, cur_y)
     return opts, x_val, opts, y_val
 
+
 # Callback to show/hide CPU core selector for kernel_cpu_time and update dropdown options
 @app.callback(
     [Output("cpu-core-selector", "children"),
@@ -1533,7 +1581,7 @@ def update_cpu_core_selector(selected_category, processed_df_data):
 
 
 # Callback to show/hide Y-axis options based on metric category
-# Only show for categories with same units (energy, memory, kernel_cpu_time), hide for miscellaneous
+# Only show for categories with same units (energy J, power W, memory, …), hide for miscellaneous
 @app.callback(
     Output("yaxis-options-container", "style"),
     Output("shared-yaxis-toggle", "value"),
@@ -1543,7 +1591,7 @@ def update_cpu_core_selector(selected_category, processed_df_data):
 def update_yaxis_options_visibility(selected_category, current_toggle_value):
     """Show Y-axis options only for categories with same units, hide for miscellaneous."""
     # Categories where sharing Y-axis makes sense (same units within category)
-    valid_categories = ["energy", "memory", "kernel_cpu_time"]
+    valid_categories = ["energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"]
     
     if selected_category in valid_categories:
         # Show the Y-axis options but do NOT re-emit the toggle value
@@ -1822,7 +1870,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
     # Build yaxis config
     yaxis_config = dict(gridcolor="rgba(76, 86, 106, 0.2)", title=y_axis_title)
     
-    # For memory metrics, add custom byte tick formatting
+    # For memory metrics, add custom byte tick formattin
     if is_memory_metric(metric):
         tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
         yaxis_config["tickvals"] = tickvals
@@ -1975,14 +2023,49 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
     
     # Filter based on category
     if selected_category == "energy":
-        # Filter for energy-related metrics
+        # Energy (J): RAPL/NVML energy + attributed energy
+        em = df_processed["base_metric"].str.contains("energy|rapl|attributed", case=False, na=False)
+        not_power = ~df_processed["base_metric"].str.contains("nvml_instant_power", case=False, na=False)
+        df_filtered = df_processed[em & not_power].copy()
+        # Normalize nvml_energy_consumption from milliJoules to Joules
+        nvml_energy_mask = df_filtered["base_metric"].str.contains("nvml_energy_consumption", case=False, na=False)
+        if nvml_energy_mask.any():
+            df_filtered.loc[nvml_energy_mask, "value"] = df_filtered.loc[nvml_energy_mask, "value"] / 1000.0
+        # Synthesize attributed_energy_total = attributed_energy_cpu + attributed_energy_gpu
+        df_total = synthesize_attributed_energy_total(df_filtered)
+        if not df_total.empty:
+            df_filtered = pd.concat([df_filtered, df_total], ignore_index=True)
+    elif selected_category == "power":
+        # Power (W): NVML instant power
         df_filtered = df_processed[
-            df_processed["base_metric"].str.contains("energy|rapl|attributed", case=False, na=False)
+            df_processed["base_metric"].str.contains("nvml_instant_power", case=False, na=False)
+        ].copy()
+        nvml_power_mask = df_filtered["base_metric"].str.contains("nvml_instant_power", case=False, na=False)
+        # Normalize nvml_instant_power from milliWatts to Watts
+        if nvml_power_mask.any():
+            df_filtered.loc[nvml_power_mask, "value"] = df_filtered.loc[nvml_power_mask, "value"] / 1000.0
+    elif selected_category == "utilization":
+        # Utilization: cpu_percent + nvml utilization/SM metrics together
+        df_filtered = df_processed[
+            df_processed["base_metric"].str.contains(
+                "cpu_percent|nvml_gpu_utilization|nvml_sm_utilization|nvml_encoder_utilization|nvml_decoder_utilization|nvml_memory_utilization",
+                case=False, na=False
+            )
+        ]
+    elif selected_category == "temperature":
+        # Temperature metrics
+        df_filtered = df_processed[
+            df_processed["base_metric"].str.contains("temperature", case=False, na=False)
         ]
     elif selected_category == "memory":
-        # Filter for memory-related metrics (including "kb")
+        # Memory (bytes only) — exclude nvml_memory_utilization (it's in utilization)
+        mem_mask = df_processed["base_metric"].str.contains("mem|memory|kb", case=False, na=False)
+        nvml_mask = df_processed["base_metric"].str.contains("nvml", case=False, na=False)
+        df_filtered = df_processed[mem_mask & ~nvml_mask]
+    elif selected_category == "perf_counters":
+        # Perf hardware and software counters
         df_filtered = df_processed[
-            df_processed["base_metric"].str.contains("mem|memory|kb", case=False, na=False)
+            df_processed["base_metric"].str.contains("^perf_hardware|^perf_software", case=False, na=False, regex=True)
         ]
     elif selected_category == "kernel_cpu_time":
         # Require CPU core selection for kernel_cpu_time (too many cores to show all)
@@ -2003,20 +2086,35 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
         for pattern in core_patterns:
             mask |= df_filtered["metric_id"].str.contains(pattern, na=False, regex=False)
         df_filtered = df_filtered[mask]
+    elif selected_category == "kernel_system":
+        # Kernel stats (non-cpu-time) + network metrics
+        kernel_mask = df_processed["base_metric"].str.startswith("kernel_")
+        kernel_cpu_time_mask = df_processed["base_metric"].str.contains("kernel_cpu_time", na=False)
+        network_mask = df_processed["base_metric"].str.startswith("network_")
+        df_filtered = df_processed[(kernel_mask & ~kernel_cpu_time_mask) | network_mask]
     elif selected_category == "miscellaneous":
-        # Filter for metrics not in other categories
-        # Identify which metrics belong to other categories
-        energy_pattern = "energy|rapl|attributed"
-        memory_pattern = "mem|memory|kb"
-        kernel_pattern = "kernel_cpu_time"
+        # Everything not in the above categories
+        energy_pat = "energy|rapl|attributed"
+        power_pat = "nvml_instant_power"
+        util_pat = "cpu_percent|nvml_gpu_utilization|nvml_sm_utilization|nvml_encoder_utilization|nvml_decoder_utilization|nvml_memory_utilization"
+        temp_pat = "temperature"
+        mem_pat = "mem|memory|kb"
+        perf_pat = "^perf_hardware|^perf_software"
+        kernel_pat = "^kernel_"
+        network_pat = "^network_"
         
-        # Create mask for metrics NOT in other categories
-        is_energy = df_processed["base_metric"].str.contains(energy_pattern, case=False, na=False)
-        is_memory = df_processed["base_metric"].str.contains(memory_pattern, case=False, na=False)
-        is_kernel = df_processed["base_metric"].str.contains(kernel_pattern, case=False, na=False)
+        is_energy = df_processed["base_metric"].str.contains(energy_pat, case=False, na=False) & ~df_processed[
+            "base_metric"
+        ].str.contains(power_pat, case=False, na=False)
+        is_power = df_processed["base_metric"].str.contains(power_pat, case=False, na=False)
+        is_util = df_processed["base_metric"].str.contains(util_pat, case=False, na=False)
+        is_temp = df_processed["base_metric"].str.contains(temp_pat, case=False, na=False)
+        is_mem = df_processed["base_metric"].str.contains(mem_pat, case=False, na=False) & ~df_processed["base_metric"].str.contains("nvml", case=False, na=False)
+        is_perf = df_processed["base_metric"].str.contains(perf_pat, case=False, na=False, regex=True)
+        is_kernel = df_processed["base_metric"].str.contains(kernel_pat, case=False, na=False, regex=True)
+        is_network = df_processed["base_metric"].str.contains(network_pat, case=False, na=False, regex=True)
         
-        # Miscellaneous = not energy, not memory, not kernel_cpu_time
-        df_filtered = df_processed[~(is_energy | is_memory | is_kernel)]
+        df_filtered = df_processed[~(is_energy | is_power | is_util | is_temp | is_mem | is_perf | is_kernel | is_network)]
     else:
         # Unknown category - return empty
         df_filtered = pd.DataFrame()

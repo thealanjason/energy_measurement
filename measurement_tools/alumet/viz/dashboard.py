@@ -1203,6 +1203,41 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     
     return html.Div(grid_rows)
 
+def _comparative_metric_ids(processed_df_data: Any, process_time_range: Any) -> list:
+    """Metric IDs that have samples inside the process active window (for X-Y comparative tab)."""
+    if not processed_df_data or not process_time_range:
+        return []
+    df_processed = df_from_store(processed_df_data)
+    _ensure_timestamp_datetime(df_processed)
+    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+    if proc_start is None or proc_end is None:
+        return []
+    df_process_level = df_processed[
+        (df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)
+    ].copy()
+    if df_process_level.empty:
+        return []
+    return sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
+
+def _filter_comparative_metric_ids(metric_ids: list, process_only: bool) -> list:
+    """Restrict to process-attributed series (consumer_kind encoded as ``_C_process_`` in metric_id)."""
+    if not process_only:
+        return list(metric_ids)
+    return [m for m in metric_ids if metric_id_is_process_consumer(m)]
+
+
+def _pick_xy_metric_values(filtered: list, cur_x: Any, cur_y: Any) -> tuple:
+    """Pick valid X/Y dropdown values from filtered list, preserving selection when possible."""
+    if not filtered:
+        return None, None
+    if len(filtered) == 1:
+        return filtered[0], filtered[0]
+    x_val = cur_x if cur_x in filtered else filtered[0]
+    others = [m for m in filtered if m != x_val]
+    y_val = cur_y if cur_y in others else others[0]
+    return x_val, y_val
+
 
 # Callback for comparative analysis tab content (lazy loading)
 @app.callback(
@@ -1236,33 +1271,14 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
             style={"margin": "0", "fontWeight": "bold"},
         )
 
-    df_processed = df_from_store(processed_df_data)
-    _ensure_timestamp_datetime(df_processed)
-
-    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
-
-    if proc_start is None or proc_end is None:
-        return dbc.Alert(
-            "Process time range not available.",
-            color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
-        )
-
-    # Only allow choosing metrics that actually have samples inside the process window
-    df_process_level = df_processed[(df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)].copy()
-
-    if df_process_level.empty:
-        return dbc.Alert(
-            "No samples inside process active window.",
-            color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
-        )
-
-    # Metric options 
-    metric_ids = sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
+    # Only metrics that have samples inside the process window
+    metric_ids = _comparative_metric_ids(processed_df_data, process_time_range)
     if len(metric_ids) < 2:
-        return dbc.Alert("Need at least 2 metrics inside process window.", color="warning", style={"margin": "0", "fontWeight": "bold"})
+        return dbc.Alert(
+            "Need at least 2 metrics inside process window.",
+            color="warning",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
 
     return dbc.Card(
         [
@@ -1307,6 +1323,30 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                 width=12, lg=6, className="mb-3",
                             ),
                         ]
+                    ),
+                    # Optional filter: only series attributed to the measured process (consumer_kind=process)
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    dbc.Checklist(
+                                        id="comparative-process-only-toggle",
+                                        options=[
+                                            {
+                                                "label": " Process metrics only",
+                                                "value": "process_only",
+                                            }
+                                        ],
+                                        value=[],
+                                        inline=True,
+                                        style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                        inputStyle={"marginRight": "8px"},
+                                    ),
+                                ],
+                                width=12,
+                                className="mb-2",
+                            ),
+                        ],
                     ),
                     # Visualization mode info and scatter toggle
                     dbc.Row(
@@ -1399,6 +1439,35 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
             style={"color": "#ECEFF4"},
         )
 
+@app.callback(
+    Output("ps-xmetric-dropdown", "options"),
+    Output("ps-xmetric-dropdown", "value"),
+    Output("ps-ymetric-dropdown", "options"),
+    Output("ps-ymetric-dropdown", "value"),
+    Input("comparative-process-only-toggle", "value"),
+    Input("results-tabs", "value"),
+    Input("processed-df-store", "data"),
+    Input("process-time-range-store", "data"),
+    State("ps-xmetric-dropdown", "value"),
+    State("ps-ymetric-dropdown", "value"),
+)
+def update_comparative_metric_dropdowns(
+    process_only_toggle, tab_value, processed_df_data, process_time_range, cur_x, cur_y
+):
+    """Filter comparative X/Y metric lists to process-attributed series when requested."""
+    if tab_value != "comparative-tab":
+        raise dash.exceptions.PreventUpdate
+
+    all_ids = _comparative_metric_ids(processed_df_data, process_time_range)
+    if len(all_ids) < 2:
+        raise dash.exceptions.PreventUpdate
+
+    process_only = bool(process_only_toggle and "process_only" in process_only_toggle)
+    filtered = _filter_comparative_metric_ids(all_ids, process_only)
+
+    opts = [{"label": m, "value": m} for m in filtered]
+    x_val, y_val = _pick_xy_metric_values(filtered, cur_x, cur_y)
+    return opts, x_val, opts, y_val
 
 # Callback to show/hide CPU core selector for kernel_cpu_time and update dropdown options
 @app.callback(
@@ -1754,9 +1823,11 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
     
     # For memory metrics, add custom byte tick formatting
     if is_memory_metric(metric):
-        tickvals, ticktext = get_bytes_tickvals_ticktext(y_min, y_max, num_ticks=5)
+        tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
         yaxis_config["tickvals"] = tickvals
         yaxis_config["ticktext"] = ticktext
+        yaxis_config["range"] = [y_bottom, y_top]
+        yaxis_config["autorange"] = False
 
     fig.update_layout(
         height=350,

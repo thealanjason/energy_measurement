@@ -1,0 +1,113 @@
+[2026-03-25T00:42:13Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:54:39.575971306Z, rustc 1.91.0, debug=false)
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] 6 plugins initialized.
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-03-25T00:42:13Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2026-03-25T00:42:13Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:3F:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-03-25T00:42:13Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:56:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-03-25T00:42:13Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:C3:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-03-25T00:42:13Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:DA:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] Plugin startup complete.
+    🧩 6 plugins started:
+        - csv v0.2.0
+        - procfs v0.2.1
+        - rapl v0.3.1
+        - perf v0.1.0
+        - nvml v0.5.0
+        - energy-attribution v0.1.1
+    
+    ⭕ 20 plugins disabled:
+        - quarch v0.1.0
+        - prometheus-exporter v0.1.0
+        - influxdb v0.1.0
+        - mongodb v0.1.0
+        - relay-client v0.6.0
+        - relay-server v0.6.0
+        - opentelemetry v0.1.0
+        - aggregation v0.1.0
+        - jetson v1.0.0
+        - energy-estimation-tdp v0.1.0
+        - elasticsearch v0.1.0
+        - kwollect-input v1.0.0
+        - kwollect-output v0.1.0
+        - socket-control v0.2.1
+        - k8s v0.1.1
+        - slurm v0.1.1
+        - oar v0.1.1
+        - cgroups v0.1.1
+        - grace-hopper v0.1.0
+        - process-to-cgroup-bridge v0.1.0
+    
+    📏 47 metrics registered:
+        - kernel_cpu_time: U64 (ms)
+        - kernel_context_switches: U64 ()
+        - kernel_new_forks: U64 ()
+        - kernel_n_procs_running: U64 ()
+        - kernel_n_procs_blocked: U64 ()
+        - mem_total: U64 (kB)
+        - mem_free: U64 (kB)
+        - mem_available: U64 (kB)
+        - cached: U64 (kB)
+        - swap_cached: U64 (kB)
+        - active: U64 (kB)
+        - inactive: U64 (kB)
+        - mapped: U64 (kB)
+        - cpu_time_delta: U64 (ns)
+        - cpu_percent: F64 (%)
+        - memory_usage: U64 (B)
+        - rapl_consumed_energy: F64 (J)
+        - perf_hardware_CPU_CYCLES: U64 ()
+        - perf_hardware_INSTRUCTIONS: U64 ()
+        - perf_hardware_CACHE_REFERENCES: U64 ()
+        - perf_hardware_CACHE_MISSES: U64 ()
+        - perf_hardware_BRANCH_INSTRUCTIONS: U64 ()
+        - perf_hardware_BRANCH_MISSES: U64 ()
+        - perf_hardware_BUS_CYCLES: U64 ()
+        - perf_hardware_REF_CPU_CYCLES: U64 ()
+        - perf_software_PAGE_FAULTS: U64 ()
+        - perf_software_CONTEXT_SWITCHES: U64 ()
+        - perf_software_CPU_MIGRATIONS: U64 ()
+        - perf_software_PAGE_FAULTS_MIN: U64 ()
+        - perf_software_PAGE_FAULTS_MAJ: U64 ()
+        - perf_software_ALIGNMENT_FAULTS: U64 ()
+        - perf_software_EMULATION_FAULTS: U64 ()
+        - perf_software_CGROUP_SWITCHES: U64 ()
+        - nvml_energy_consumption: F64 (mJ)
+        - nvml_instant_power: U64 (mW)
+        - nvml_temperature_gpu: U64 (°C)
+        - nvml_gpu_utilization: U64 (%)
+        - nvml_decoder_sampling_period: U64 (μs)
+        - nvml_encoder_sampling_period: U64 (μs)
+        - nvml_n_compute_processes: U64 ()
+        - nvml_n_graphic_processes: U64 ()
+        - nvml_memory_utilization: U64 (%)
+        - nvml_decoder_utilization: U64 (%)
+        - nvml_encoder_utilization: U64 (%)
+        - nvml_sm_utilization: U64 (%)
+        - attributed_energy_cpu: F64 (J)
+        - attributed_energy_gpu: F64 (J)
+    
+    📥 7 sources, 🔀 2 transforms and 📝 1 output registered.
+    
+    🔔 0 metric listener registered.
+    
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-03-25T00:42:13Z INFO  plugin_procfs] Setting up on-demand process watcher.
+[2026-03-25T00:42:13Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-03-25T00:42:13Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 900625.
+[2026-03-25T00:42:13Z INFO  plugin_perf] Starting to observe Process { pid: 900625 }...
+  0%|          | 0/50 [00:00<?, ?it/s]  2%|▏         | 1/50 [00:00<00:15,  3.07it/s] 20%|██        | 10/50 [00:00<00:01, 29.53it/s] 38%|███▊      | 19/50 [00:00<00:00, 47.38it/s] 54%|█████▍    | 27/50 [00:00<00:00, 57.07it/s] 72%|███████▏  | 36/50 [00:00<00:00, 66.20it/s] 90%|█████████ | 45/50 [00:00<00:00, 72.45it/s]100%|██████████| 50/50 [00:00<00:00, 55.83it/s]
+[2026-03-25T00:42:17Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
+[2026-03-25T00:42:17Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-03-25T00:42:17Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-900625 stopped itself.
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping plugin perf v0.1.0
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping plugin nvml v0.5.0
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] Stopping plugin energy-attribution v0.1.1
+[2026-03-25T00:42:18Z INFO  alumet::agent::builder] All plugins have stopped.

@@ -1,0 +1,14 @@
+name: test-case-exactgp
+channels:
+  - nvidia
+  - pytorch
+  - conda-forge
+dependencies:
+  - matplotlib
+  - numpy<2.0
+  - pandas
+  - pytorch
+  - python=3.11
+  - pytorch-cuda=12.4
+  - gpytorch
+  - tqdm

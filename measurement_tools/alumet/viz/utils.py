@@ -203,6 +203,15 @@ def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
 # ================================================
 # Metric classification helper functions
 # ================================================
+def metric_id_is_process_consumer(metric_id: str) -> bool:
+    """
+    True if the metric row was attributed to a process (consumer_kind == 'process').
+    
+    Preprocessed metric_id embeds consumers as ..._C_{consumer_kind}_{consumer_id}_A_{late_attributes}....
+    Process rows contain _C_process_<pid>_ (e.g. _C_process_172681_A_).
+    """
+    return "_C_process_" in str(metric_id)
+
 def is_cumulative_metric(metric_id: str) -> bool:
     """
     Determine if a metric represents a cumulative quantity that should be summed over time.
@@ -334,32 +343,38 @@ def is_memory_metric(metric_name: str) -> bool:
     return any(p in metric_lower for p in memory_patterns)
 
 
-def format_bytes_ticklabel(value: float) -> str:
+def format_bytes_ticklabel(value: float, decimals: int = 1) -> str:
     """
     Format a byte value with appropriate unit (B, KB, MB, GB, TB).
     Uses binary prefixes (1024-based).
     
     Args:
         value: Value in bytes
+        decimals: Decimal places for scaled units (KB-TB). Use 2-3 when the axis span is
+            narrow magnitude so adjacent ticks don't format to identical labels.
     
     Returns:
         Formatted string with appropriate unit
     """
+    d = max(0, min(6, int(decimals)))
     if abs(value) < 1024:
         return f"{value:.0f} B"
     elif abs(value) < 1024 ** 2:
-        return f"{value / 1024:.1f} KB"
+        return f"{value / 1024:.{d}f} KB"
     elif abs(value) < 1024 ** 3:
-        return f"{value / (1024 ** 2):.1f} MB"
+        return f"{value / (1024 ** 2):.{d}f} MB"
     elif abs(value) < 1024 ** 4:
-        return f"{value / (1024 ** 3):.1f} GB"
+        return f"{value / (1024 ** 3):.{d}f} GB"
     else:
-        return f"{value / (1024 ** 4):.1f} TB"
+        return f"{value / (1024 ** 4):.{d}f} TB"
 
 
 def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) -> tuple:
     """
     Generate tick values and formatted tick text for byte-valued axes.
+    
+    Uses adaptive precision and label deduplication so narrow ranges
+    don't produce multiple overlapping labels from linspace in raw bytes.
     
     Args:
         y_min: Minimum y value in bytes (will be clamped to 0 if negative)
@@ -370,17 +385,48 @@ def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) 
         Tuple of (tickvals, ticktext) lists for Plotly axis configuration
     """
     # Ensure y_min is not negative (memory can't be negative)
-    y_min = max(0, y_min)
+    y_min = max(0, float(y_min))
+    y_max = float(y_max)
     
     # Handle edge cases
     if y_max <= y_min:
         y_max = y_min + 1
     
-    # Generate evenly spaced tick values
-    tickvals = np.linspace(y_min, y_max, num_ticks)
-    ticktext = [format_bytes_ticklabel(v) for v in tickvals]
+    span = y_max - y_min
+    span_ratio = span / max(abs(y_max), abs(y_min), 1e-12)
     
-    return list(tickvals), ticktext
+    # Prefer fewer ticks when relative span is tiny (reduces collision risk)
+    nt_candidates = [num_ticks, max(3, num_ticks - 1), 3]
+    if span_ratio < 0.001:
+        nt_candidates = [4, 3]
+        
+    for nt in nt_candidates:
+        tickvals = np.linspace(y_min, y_max, nt)
+        for dec in (1, 2, 3, 4):
+            ticktext = [format_bytes_ticklabel(float(v), decimals=dec) for v in tickvals]
+            if len(set(ticktext)) == len(ticktext):
+                return list(tickvals), ticktext
+        # Dedupe same-formatted labels while keeping spread
+        ticktext = [format_bytes_ticklabel(float(v), decimals=4) for v in tickvals]
+        out_vals: list = []
+        out_text: list = []
+        seen: set = set()
+        for v, t in zip(tickvals, ticktext):
+            if t not in seen:
+                seen.add(t)
+                out_vals.append(float(v))
+                out_text.append(t)
+        if len(out_vals) >= 2:
+            return out_vals, out_text
+        
+    # Last resort: endpoints only
+    return (
+        [y_min, y_max],
+        [
+            format_bytes_ticklabel(y_min, decimals=4),
+            format_bytes_ticklabel(y_max, decimals=4),
+        ],
+    )
 
 
 
@@ -582,6 +628,10 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     if df_processed.empty:
         return go.Figure()
     
+    # Coerce timestamps
+    df_processed = df_processed.copy()
+    df_processed["timestamp"] = pd.to_datetime(df_processed["timestamp"], errors="coerce")
+    
     # Get unique metric_ids
     unique_metrics = df_processed["metric_id"].unique()
     n_metrics = len(unique_metrics)
@@ -595,14 +645,18 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     else:
         x_min = df_processed["timestamp"].min()
         x_max = df_processed["timestamp"].max()
+    x_min = pd.Timestamp(x_min)
+    x_max = pd.Timestamp(x_max)
     
     # Get color palette
     colors = get_color_palette(n_metrics)
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
     
     # Vertical spacing between subplots
-    # Fixed spacing ensures consistent appearance regardless of number of metrics
-    vertical_spacing = 0.03 if n_metrics > 1 else 0.05  
+    MIN_SUBPLOT_HEIGHT = 240  # Pixels per subplot row (scroll container avoids squashing)
+    SUBPLOT_GAP_PX = 52       # Fixed pixel gap between subplot rows
+    total_height = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
+    vertical_spacing = (SUBPLOT_GAP_PX / total_height) if n_metrics > 1 else 0.05
     
     # Create subplots with formatted titles
     # Using shared_xaxes=True so zooming one subplot zooms all others to the same time region
@@ -657,49 +711,60 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
             global_min = max(0, global_min)
         shared_y_range = {"min": global_min, "max": global_max}
 
-    # Gray highlighted zone for process active period first
+    # Gray highlighted zone for process active period
+    # Use layout shapes (vrect) instead of traces — these always span the full Y-axis
+    # regardless of zoom level, and don't clutter the legend
     if proc_start and proc_end:
         for idx in range(1, n_metrics + 1):
-            metric_id = unique_metrics[idx-1]
-            # Use shared y-range if enabled, otherwise use individual metric range
-            if shared_y_range:
-                y_bottom = shared_y_range["min"]
-                y_top = shared_y_range["max"]
-            else:
-                y_bottom = y_ranges[metric_id]["min"]
-                y_top = y_ranges[metric_id]["max"]
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=[proc_start, proc_start, proc_end, proc_end, proc_start],
-                    y=[y_bottom, y_top, y_top, y_bottom, y_bottom],
-                    mode="lines",
-                    fill="toself",
-                    fillcolor="rgba(136, 192, 208, 0.12)",
-                    line=dict(width=0),
-                    name="Process Active" if idx == 1 else "",
-                    showlegend=(idx == 1),  # Only show in legend once
-                    legendgroup="process_active",
-                    hoverinfo="text",
-                    hovertext=f"Process Active Period<br>{proc_start.strftime('%H:%M:%S.%L')} - {proc_end.strftime('%H:%M:%S.%L')}",
-                ),
-                row=idx, col=1
+            # yref="y{n} domain" makes the shape span 0-100% of the subplot's Y-axis
+            yref = f"y{idx} domain" if idx > 1 else "y domain"
+            xref = f"x{idx}" if idx > 1 else "x"
+            fig.add_shape(
+                type="rect",
+                x0=proc_start, x1=proc_end,
+                y0=0, y1=1,
+                xref=xref,
+                yref=yref,
+                fillcolor="rgba(136, 192, 208, 0.12)",
+                line=dict(width=0),
+                layer="below",
             )
+        # Add a single invisible trace for the legend entry
+        first_mid = unique_metrics[0]
+        yr0 = y_ranges.get(first_mid, {"min": 0.0, "max": 1.0})
+        y_leg = float(yr0["min"]) + 0.01 * (float(yr0["max"]) - float(yr0["min"]) + 1e-9)
+        fig.add_trace(
+            go.Scatter(
+                x=[x_min],
+                y=[y_leg],
+                mode="markers",
+                marker=dict(size=10, color="rgba(136, 192, 208, 0.4)", symbol="square"),
+                name="Process Active",
+                showlegend=True,
+                legendgroup="process_active",
+                visible="legendonly",
+            ),
+            row=1, col=1,
+        )
 
     # Pre-group data by metric_id for faster iteration (sort once, not per metric)
     df_sorted = df_processed.sort_values(["metric_id", "timestamp"])
     grouped = {mid: grp for mid, grp in df_sorted.groupby("metric_id", observed=True, sort=False)}
     
     # Determine total points to decide rendering strategy
+    # Per-metric rendering: use WebGL when the series is huge.
     total_points = len(df_processed)
-    use_webgl = total_points > 10000  # Use WebGL for large datasets
-    show_markers = total_points < 5000  # Only show markers for smaller datasets
+    show_markers_global = total_points < 5000  # Only show markers for smaller datasets
     
     # Add traces for each metric
     for idx, metric_id in enumerate(unique_metrics, start=1):
         metric_data = grouped.get(metric_id, pd.DataFrame())
         if metric_data.empty:
             continue
+        
+        n_pts = len(metric_data)
+        use_webgl = n_pts > 10000  # Use WebGL for large series based on total number of points in each metric
+        show_markers = show_markers_global and n_pts < 5000
             
         color = color_map[metric_id]
 
@@ -718,12 +783,12 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
             # Default fallback
             rgba_fill = "rgba(136, 192, 208, 0.15)"
 
-        # Choose scatter type: Scattergl (WebGL) for large datasets, Scatter for small
+        # Choose scatter type: Scattergl (WebGL) for large series, Scatter otherwise
         ScatterClass = go.Scattergl if use_webgl else go.Scatter
         
         # Build trace config - markers only for smaller datasets (performance)
         trace_config = dict(
-            x=metric_data["timestamp"],
+            x=pd.to_datetime(metric_data["timestamp"], errors="coerce"),
             y=metric_data["value"],
             mode="lines+markers" if show_markers else "lines",
             name=metric_id,
@@ -751,6 +816,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         # Fix x-axis range to full measurement time
         # With shared_xaxes=True, zooming one subplot zooms all others to the same time region
         fig.update_xaxes(
+            type="date",
             range=[x_min, x_max],
             gridcolor="rgba(76, 86, 106, 0.2)",
             showticklabels=True,  # Show tick labels on each subplot (overrides shared_xaxes default)
@@ -766,8 +832,16 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         # Determine Y-axis label based on category
         if category == "energy":
             y_axis_label = "Value (J)"
+        elif category == "power":
+            y_axis_label = "Value (W)"
         elif category == "memory":
             y_axis_label = "Value (B)"
+        elif category == "utilization":
+            y_axis_label = "Value (%)"
+        elif category == "temperature":
+            y_axis_label = "Value (°C)"
+        elif category == "perf_counters":
+            y_axis_label = "Value (count)"
         else:
             y_axis_label = "Value"
         
@@ -801,10 +875,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     # Add "Time" label only to the bottom subplot
     fig.update_xaxes(title_text="Time", row=n_metrics, col=1)
 
-    # Increase height per subplot since each has its own X-axis ticks
-    subplot_height = 280
-    total_height = subplot_height * n_metrics
-    
+    # total_height was already calculated above from MIN_SUBPLOT_HEIGHT * n_metrics + gaps
     fig.update_layout(
         height=total_height,  # Total height for all subplots
         title=dict(text="<b>📈 Time series of all metrics</b>", x=0.5, font=dict(size=16)),
@@ -823,6 +894,6 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
             font=dict(color="#d8dee9"),
         ),
     )
-    fig.update_xaxes(rangeslider=dict(visible=False), row=n_metrics, col=1)
+    fig.update_xaxes(type="date", rangeslider=dict(visible=False), row=n_metrics, col=1)
     
     return fig

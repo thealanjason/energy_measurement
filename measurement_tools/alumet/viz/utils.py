@@ -835,7 +835,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         elif category == "power":
             y_axis_label = "Value (W)"
         elif category == "memory":
-             y_axis_label = "Value (B)"
+            y_axis_label = "Value (B)"
         elif category == "utilization":
             y_axis_label = "Value (%)"
         elif category == "temperature":
@@ -843,7 +843,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         elif category == "perf_counters":
             y_axis_label = "Value (count)"
         else:
-             y_axis_label = "Value"
+            y_axis_label = "Value"
         
         # Build y-axis configuration
         yaxis_config = dict(

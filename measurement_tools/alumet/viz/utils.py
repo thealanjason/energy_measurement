@@ -211,7 +211,7 @@ def metric_id_is_process_consumer(metric_id: str) -> bool:
     Process rows contain _C_process_<pid>_ (e.g. _C_process_172681_A_).
     """
     return "_C_process_" in str(metric_id)
-    
+
 def is_cumulative_metric(metric_id: str) -> bool:
     """
     Determine if a metric represents a cumulative quantity that should be summed over time.
@@ -831,7 +831,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
         )
         # Determine Y-axis label based on category
         if category == "energy":
-             y_axis_label = "Value (J)"
+            y_axis_label = "Value (J)"
         elif category == "power":
             y_axis_label = "Value (W)"
         elif category == "memory":

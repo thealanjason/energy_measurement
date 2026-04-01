@@ -15,6 +15,7 @@ from dash import Dash, html, dcc, callback, Input, Output, State, ctx, MATCH, AL
 from utils import (
     load_csv_from_path,
     preprocess_dataframe_for_visualization, 
+    metric_id_is_process_consumer,
     get_process_time_range_from_df, 
     read_file_content,
     extract_pid_from_content, 

@@ -20,8 +20,10 @@ def _read_csv_with_polars(csv_path: Path) -> pl.DataFrame:
     """
     parquet_path = csv_path.with_suffix(".parquet")
     if parquet_path.exists() and parquet_path.stat().st_mtime >= csv_path.stat().st_mtime:
-        # Parquet sidecar is fresh — skip CSV parsing entirely
-        return pl.read_parquet(parquet_path)
+        cached = pl.read_parquet(parquet_path)
+        id_cols = [c for c in ("resource_id", "consumer_id") if c in cached.columns]
+        if all(cached[c].dtype == pl.Utf8 for c in id_cols):
+            return cached
     
     # Use Polars multi-threaded CSV reader (significantly faster than pandas)
     # Explicit dtypes:

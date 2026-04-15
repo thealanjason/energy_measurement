@@ -106,7 +106,13 @@ def load_cached_dataframe(cache_id: Optional[str]) -> pd.DataFrame:
         _MEMORY_CACHE[cache_id] = df  # Promote to memory for next access
         return df
     
-    return pd.DataFrame()
+    # Cache miss
+    return pd.DataFrame({"__cache_miss__": [True]})
+
+
+def is_cache_miss(df: pd.DataFrame) -> bool:
+    """True when df_from_store returned a sentinel for a stale server-side cache."""
+    return not df.empty and "__cache_miss__" in df.columns
 
 
 def df_from_store(store_data: Any) -> pd.DataFrame:
@@ -1058,6 +1064,12 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     
     # Convert stored data back to dataframe
     df_original = df_from_store(original_df_data)
+    if is_cache_miss(df_original):
+        return dbc.Alert(
+            "Session data expired (server was restarted). Please click Visualize again to reload.",
+            color="danger",
+            style={"margin": "0", "fontWeight": "bold"},
+        )
     _ensure_timestamp_datetime(df_original)
     
     # Get unique metrics

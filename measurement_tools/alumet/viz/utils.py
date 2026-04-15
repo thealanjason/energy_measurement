@@ -76,9 +76,9 @@ def load_csv_from_path(csv_path: Path) -> pd.DataFrame:
     
     return df
 
-
 def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
-    """Preprocess dataframe to have metric, timestamp, and value columns.
+    """
+    Preprocess dataframe to have metric, timestamp, and value columns.
     Metric column format: f"{metric}_R_{resource_kind}_{resource_id}_C_{consumer_kind}_{consumer_id}_A_{late_attributes}"
     
     Uses Polars for string concatenation,
@@ -584,7 +584,7 @@ def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) 
     
     span = y_max - y_min
     span_ratio = span / max(abs(y_max), abs(y_min), 1e-12)
-    
+
     # Prefer fewer ticks when relative span is tiny (reduces collision risk)
     nt_candidates = [num_ticks, max(3, num_ticks - 1), 3]
     if span_ratio < 0.001:
@@ -944,6 +944,7 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
     # Determine total points to decide rendering strategy
     # Per-metric rendering: use WebGL when the series is huge.
     total_points = len(df_processed)
+    use_webgl = total_points > 10000  # Use WebGL for large datasets
     show_markers_global = total_points < 5000  # Only show markers for smaller datasets
     
     # Add traces for each metric

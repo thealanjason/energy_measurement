@@ -325,6 +325,16 @@ def is_gpu_from_content(log_content: str) -> bool:
             return True
     return False
 
+
+def is_cpu_from_content(log_content: str) -> bool:
+    """Detect whether the run used CPU-related Alumet plugins from agent log text."""
+    if not log_content:
+        return False
+    for line in log_content.split("\n"):
+        if re.search(r"rapl", line, re.IGNORECASE):
+            return True
+    return False
+
 def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
     """Get the process active time range from the dataframe.
     

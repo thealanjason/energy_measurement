@@ -20,6 +20,7 @@ from utils import (
     read_file_content,
     extract_pid_from_content, 
     is_gpu_from_content,
+    is_cpu_from_content,
     get_color_palette,
     create_all_timeseries_plots,
     norm,
@@ -650,7 +651,12 @@ def update_process_info(n_clicks, directory_path):
     log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
     log_content = read_file_content(log_file)
     pid = extract_pid_from_content(log_content)
-    device = "GPU" if is_gpu_from_content(log_content) else "CPU"
+    if is_gpu_from_content(log_content) and not is_cpu_from_content(log_content):
+        device = "GPU"
+    elif not is_gpu_from_content(log_content) and is_cpu_from_content(log_content):
+        device = "CPU"
+    else:
+        device = "CPU + GPU"
     return (
         f"Process ID: {pid or 'N/A'}",
         f"Device: {device}",

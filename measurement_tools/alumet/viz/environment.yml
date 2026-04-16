@@ -8,8 +8,7 @@ dependencies:
   - polars  # Multi-threaded CSV reader (2-5x faster than pandas for large files)
   - pyarrow  # Fast Parquet I/O for server-side caching of large DataFrames
   - python=3.12
-  - pip:
-    - dash
-    - dash-ag-grid
-    - dash-bootstrap-components
-    - toml
+  - dash
+  - dash-ag-grid
+  - dash-bootstrap-components
+  - toml

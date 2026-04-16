@@ -648,12 +648,12 @@ def update_process_info(n_clicks, directory_path):
         return "process id: N/A", "device: N/A"
     
     # Find and read log file
-    log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
-    log_content = read_file_content(log_file)
-    pid = extract_pid_from_content(log_content)
-    if is_gpu_from_content(log_content) and not is_cpu_from_content(log_content):
+    csv_file = find_files_in_directory(directory_path, ['.csv'])
+    csv_content = read_file_content(csv_file)
+    pid = extract_pid_from_content(csv_content)
+    if is_gpu_from_content(csv_content) and not is_cpu_from_content(csv_content):
         device = "GPU"
-    elif not is_gpu_from_content(log_content) and is_cpu_from_content(log_content):
+    elif not is_gpu_from_content(csv_content) and is_cpu_from_content(csv_content):
         device = "CPU"
     else:
         device = "CPU + GPU"

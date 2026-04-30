@@ -10,11 +10,11 @@ csv_late_delimiter = ","
 # Procfs Plugin
 [plugins.procfs.kernel]
 enabled = true
-poll_interval = "500ms"
+poll_interval = "50ms"
 
 [plugins.procfs.memory]
 enabled = true
-poll_interval = "500ms"
+poll_interval = "50ms"
 metrics = [
     "MemTotal",
     "MemFree",
@@ -28,38 +28,38 @@ metrics = [
 
 [plugins.procfs.network]
 enabled = false
-poll_interval = "500ms"
+poll_interval = "50ms"
 
 [plugins.procfs.processes]
 enabled = true
-refresh_interval = "500ms"
+refresh_interval = "50ms"
 strategy = "event" # "event" for polling, "watcher" for watching for process changes
 
 # Process groups (used when strategy = "watcher", but must be present).
 # Omit pid, ppid, and exe_regex to match all processes.
 [[plugins.procfs.processes.groups]]
 exe_regex = "python.*"  # Only track python processes
-poll_interval = "500ms"
-flush_interval = "1s"
+poll_interval = "50ms"
+flush_interval = "500ms"
 memory_mode = "quick"    # "quick" reads /proc/<pid>/statm (fast)
                          # "slow_but_accurate" reads /proc/<pid>/smaps_rollup (precise)
 
 # Event-mode settings (used when strategy = "event").
 [plugins.procfs.processes.events]
-poll_interval = "500ms"
-flush_interval = "1s"
+poll_interval = "50ms"
+flush_interval = "500ms"
 memory_mode = "quick"
 
 # RAPL Plugin (CPU energy)
 [plugins.rapl]
-poll_interval = "500ms"
-flush_interval = "1s"
+poll_interval = "50ms"
+flush_interval = "500ms"
 no_perf_events = false
 
 # Perf Plugin (hardware/software counters)
 [plugins.perf]
-poll_interval = "500ms"
-flush_interval = "1s"
+poll_interval = "50ms"
+flush_interval = "500ms"
 hardware_events = [
     "CPU_CYCLES",
     "INSTRUCTIONS",
@@ -88,8 +88,8 @@ cache_events = []
 # NVML requires 20-100ms to refresh counter values based on GPU model. 
 # When poll_interval is set too low, the plugin queries identical counter values repeatedly during polling. 
 # Since some measurements are calculated from previous polls, these measurements are discarded rather than reported as zero values.
-poll_interval = "500ms"
-flush_interval = "1s"
+poll_interval = "100ms"
+flush_interval = "500ms"
 skip_failed_devices = true
 mode = "full"         # "full" for all GPU metrics, "minimal" for power only
 
@@ -105,7 +105,7 @@ ref = "cpu_energy"
 # retention time is the time period over which the formula is applied
 # it should be coherent with the input metrics’ poll_interval, and give the example that if inputs are polled every 1 second, using at least 2 seconds is recommended so previous values are available for interpolation.
 # https://github.com/alumet-dev/alumet/pull/328/changes
-retention_time = "1s"
+retention_time = "500ms"
 
 # Timeseries related to the resources.
 [plugins.energy-attribution.formulas.attributed_energy_cpu.per_resource]
@@ -125,7 +125,7 @@ cpu_usage = { metric = "cpu_percent", kind = "total" }
 [plugins.energy-attribution.formulas.attributed_energy_gpu]
 expr = "gpu_energy * gpu_usage / 100.0 / 1000.0"
 ref = "gpu_energy"
-retention_time = "1s"
+retention_time = "500ms"
 
 [plugins.energy-attribution.formulas.attributed_energy_gpu.per_resource]
 gpu_energy = { metric = "nvml_energy_consumption" }

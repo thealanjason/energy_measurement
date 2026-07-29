@@ -193,14 +193,13 @@ No details in the documentation. So configuration capabilities will need to be f
 > ```
 > This will write `alumet-config.toml` in the current directory with default values for those plugins.
 
+## Prerequisite for access to example experiment CSV outputs
 
-## Visualization Dashboard
+Large experiment outputs under `experiments/**/*.csv` are stored with [Git LFS](https://git-lfs.com/). Without Git LFS installed, those files appear as small **pointer** text files instead of real CSVs.
 
-To better visualize the measurement results, a thorough EDA is visualized through a visualization dashboard. 
+Follow the installation instruction in [Git LFS](https://git-lfs.com/), then run:
 
-Run
 ```bash
-cd measurement_tools/alumet/viz
-conda env create -f environment.yml # If using micromamba/mamba, replace conda with micromamba/mamba
-python dashboard.py
+git lfs install
+git lfs pull
 ```

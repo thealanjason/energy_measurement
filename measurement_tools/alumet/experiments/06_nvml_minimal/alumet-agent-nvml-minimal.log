@@ -1,21 +1,21 @@
-[2026-03-25T00:41:24Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.3-5c6a5e2-dirty (2026-02-12T11:54:39.575971306Z, rustc 1.91.0, debug=false)
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] Initializing the plugins...
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] 5 plugins initialized.
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] Starting the plugins...
-[2026-03-25T00:41:24Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
-[2026-03-25T00:41:24Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:3F:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
-[2026-03-25T00:41:24Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:56:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
-[2026-03-25T00:41:24Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:C3:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
-[2026-03-25T00:41:24Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:DA:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] Plugin startup complete.
+[2026-07-29T21:08:32Z INFO  alumet_agent] Starting Alumet agent 'alumet-agent' v0.9.5 (2026-06-26)
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] Initializing the plugins...
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] 5 plugins initialized.
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] Starting the plugins...
+[2026-07-29T21:08:32Z INFO  plugin_rapl] Available RAPL domains: dram, package, platform
+[2026-07-29T21:08:32Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:3F:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-07-29T21:08:32Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:56:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-07-29T21:08:32Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:C3:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-07-29T21:08:32Z INFO  plugin_nvidia_nvml] Found NVML device 00000000:DA:00.0 "NVIDIA L40S" with features: total_energy_consumption, instant_power, major_utilization, memory_info, decoder_utilization, encoder_utilization, process_utilization_stats, temperature_gpu, running_compute_processes(latest), running_graphics_processes(latest)
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] Plugin startup complete.
     🧩 5 plugins started:
         - csv v0.2.0
-        - procfs v0.2.1
+        - procfs v0.3.0
         - rapl v0.3.1
         - perf v0.1.0
-        - nvml v0.5.0
+        - nvml v0.6.0
     
-    ⭕ 21 plugins disabled:
+    ⭕ 24 plugins disabled:
         - quarch v0.1.0
         - prometheus-exporter v0.1.0
         - influxdb v0.1.0
@@ -25,18 +25,21 @@
         - opentelemetry v0.1.0
         - aggregation v0.1.0
         - energy-attribution v0.1.1
-        - energy-estimation-tdp v0.1.0
+        - energy-estimation-tdp v2.0.0
         - elasticsearch v0.1.0
         - kwollect-input v1.0.0
         - kwollect-output v0.1.0
+        - filter v0.1.0
+        - energy-to-carbon v0.1.0
         - socket-control v0.2.1
         - k8s v0.1.1
         - slurm v0.1.1
         - oar v0.1.1
         - cgroups v0.1.1
         - grace-hopper v0.1.0
-        - process-to-cgroup-bridge v0.1.0
         - jetson v1.0.0
+        - process-to-cgroup-bridge v0.1.0
+        - amd-gpu v1.0.0
     
     📏 35 metrics registered:
         - kernel_cpu_time: U64 (ms)
@@ -44,14 +47,14 @@
         - kernel_new_forks: U64 ()
         - kernel_n_procs_running: U64 ()
         - kernel_n_procs_blocked: U64 ()
-        - mem_total: U64 (kB)
-        - mem_free: U64 (kB)
-        - mem_available: U64 (kB)
-        - cached: U64 (kB)
-        - swap_cached: U64 (kB)
-        - active: U64 (kB)
-        - inactive: U64 (kB)
-        - mapped: U64 (kB)
+        - mem_total: U64 (B)
+        - mem_free: U64 (B)
+        - mem_available: U64 (B)
+        - cached: U64 (B)
+        - swap_cached: U64 (B)
+        - active: U64 (B)
+        - inactive: U64 (B)
+        - mapped: U64 (B)
         - cpu_time_delta: U64 (ns)
         - cpu_percent: F64 (%)
         - memory_usage: U64 (B)
@@ -79,23 +82,23 @@
     
     🔔 0 metric listener registered.
     
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] Starting the measurement pipeline...
-[2026-03-25T00:41:24Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
-[2026-03-25T00:41:24Z INFO  plugin_procfs] Setting up on-demand process watcher.
-[2026-03-25T00:41:24Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
-[2026-03-25T00:41:24Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 900376.
-[2026-03-25T00:41:24Z INFO  plugin_perf] Starting to observe Process { pid: 900376 }...
-  0%|          | 0/50 [00:00<?, ?it/s]  2%|▏         | 1/50 [00:00<00:19,  2.54it/s] 20%|██        | 10/50 [00:00<00:01, 24.52it/s] 36%|███▌      | 18/50 [00:00<00:00, 38.99it/s] 52%|█████▏    | 26/50 [00:00<00:00, 50.03it/s] 68%|██████▊   | 34/50 [00:00<00:00, 58.23it/s] 84%|████████▍ | 42/50 [00:00<00:00, 64.25it/s]100%|██████████| 50/50 [00:01<00:00, 68.57it/s]100%|██████████| 50/50 [00:01<00:00, 48.96it/s]
-[2026-03-25T00:41:28Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
-[2026-03-25T00:41:28Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
-[2026-03-25T00:41:28Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-900376 stopped itself.
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] Stopping the plugins...
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] Stopping plugin procfs v0.2.1
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] Stopping plugin perf v0.1.0
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] Stopping plugin nvml v0.5.0
-[2026-03-25T00:41:28Z INFO  alumet::agent::builder] All plugins have stopped.
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] Running pre-pipeline-start hooks...
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] Starting the measurement pipeline...
+[2026-07-29T21:08:32Z INFO  alumet::pipeline::builder] Only one output and no transform, using a simplified and optimized measurement pipeline.
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] 🔥 ALUMET measurement pipeline has started.
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] Running post-pipeline-start hooks...
+[2026-07-29T21:08:32Z INFO  plugin_procfs] Setting up on-demand process watcher.
+[2026-07-29T21:08:32Z INFO  alumet::agent::builder] 🔥 ALUMET agent is ready.
+[2026-07-29T21:08:32Z INFO  alumet::agent::exec] Child process 'python3' spawned with pid 425704.
+[2026-07-29T21:08:32Z INFO  plugin_perf] Starting to observe Process { pid: 425704 }...
+  0%|          | 0/50 [00:00<?, ?it/s]  2%|▏         | 1/50 [00:00<00:30,  1.62it/s] 20%|██        | 10/50 [00:00<00:02, 17.81it/s] 36%|███▌      | 18/50 [00:00<00:01, 30.62it/s] 52%|█████▏    | 26/50 [00:00<00:00, 41.73it/s] 68%|██████▊   | 34/50 [00:01<00:00, 50.90it/s] 84%|████████▍ | 42/50 [00:01<00:00, 58.14it/s]100%|██████████| 50/50 [00:01<00:00, 63.77it/s]100%|██████████| 50/50 [00:01<00:00, 40.36it/s]
+[2026-07-29T21:08:39Z INFO  alumet::agent::exec] Child process exited with exit status: 0, Alumet will now stop.
+[2026-07-29T21:08:39Z INFO  alumet::agent::exec] Publishing EndConsumerMeasurement event
+[2026-07-29T21:08:39Z INFO  alumet::pipeline::elements::source::run] Source sources/procfs/pid-425704 stopped itself.
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] Stopping the plugins...
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] Stopping plugin csv v0.2.0
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] Stopping plugin procfs v0.3.0
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] Stopping plugin rapl v0.3.1
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] Stopping plugin perf v0.1.0
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] Stopping plugin nvml v0.6.0
+[2026-07-29T21:08:40Z INFO  alumet::agent::builder] All plugins have stopped.
